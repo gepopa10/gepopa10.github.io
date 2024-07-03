@@ -31,10 +31,39 @@ This enabled manual teleoperation of the forklift system as shown in the video b
 Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++20</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Boost</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">ROS2</span>, 
-<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Protofub</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Protobuf</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Nanopb</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">FreeRTOS</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Networking</span>
+
+## Changing the manufacturing industry with autonomous industrial robots for painting, powder coating, welding, sanding and milling at [Omnirobotic](https://omnirobotic.com/)
+
+![Robot sanding autonomously](omnirobotic.gif)
+
+As part of the motion planning team, I developed a driver to send joint commands to a FANUC robot over Ethernet. 
+
+I enabled the use of collaborative robots by developing a maximum speed and acceleration trajectory planned based on polynomials.
+
+I also worked on reducing the toolpath planning time by benchmarking different sampling-based algorithms from OMPL on custom scenarios.
+
+Finally, I worked in developing a deployment application that loads binaries from our servers and deploys them on customers computers as docker containers. 
+
+<p>&#11088; <strong>Main challenge: </strong> Reduce motion planning time for a wide range of scenarios.</p>
+
+Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++11</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Boost</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">OMPL</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Protobuf/span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Docker</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">OMPL</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">CI/CD</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Nomad</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Pytest</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Optimization</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Networking</span>
+
+*** 
 
 # Projects
 
