@@ -6,7 +6,7 @@ I am George, a robotics software engineer that hold a masters of applied science
 
 I have 4 years of experience in the robotics field working with ground robots, aerial robots and manipulators.
 
-I am skilled in <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 6px 6px; font-weight: bold;">C++</span>, <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 6px 6px; font-weight: bold;">ROS</span>, <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 6px 6px; font-weight: bold;">Python</span>.
+I am skilled in <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++</span>, <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 6px 6px; font-weight: bold;">ROS</span>, <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 6px 6px; font-weight: bold;">Python</span>.
 
 My main interest lies in developing autonomous robots applications by working on algorithms, sensors integration and infrastructure.
 
