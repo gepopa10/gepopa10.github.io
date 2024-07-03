@@ -26,7 +26,7 @@ This enabled manual teleoperation of the forklift system as shown in the video b
 
 ![Forklift movement](forklift_video.gif)
 
-<p>&#11088; <strong>Main challenge</strong> Design a modular networking library that supports TCP/UDP, CAN or Serial to send/receive data from sensors or actuators.</p>
+<p>&#11088; <strong>Main challenge: </strong> Design a modular networking library that supports TCP/UDP, CAN or Serial to send/receive data from sensors or actuators.</p>
 
 Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++20</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Boost</span>, 
