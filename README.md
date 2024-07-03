@@ -53,7 +53,7 @@ Finally, I worked in developing a deployment application that loads binaries fro
 Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++11</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Boost</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">OMPL</span>, 
-<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Protobuf/span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Protobuf</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Docker</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">OMPL</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">CI/CD</span>, 
