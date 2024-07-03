@@ -14,7 +14,7 @@ I follow <span style="background-color: #0077B5; color: white; border-radius: 6p
 
 # Experience
 
-## Making the future of vertical farming at [Seasony}(https://www.seasony.io/)
+## Making the future of vertical farming at [Seasony](https://www.seasony.io/)
 
 ![Robotic Platform](watney.png)
 
