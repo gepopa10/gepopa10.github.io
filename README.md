@@ -88,7 +88,7 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Serial</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Raspberry Pi</span>
 
-## Chaning people life's at the Intelligent Systems and Mechatronics Lab
+## Changing people's lifes at the Intelligent Systems and Mechatronics Lab
 
 ![Simulation](Vrep_simulation.gif)
 ![Lab setup](hitting_motion.gif)
