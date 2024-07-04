@@ -57,7 +57,6 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">OMPL</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Protobuf</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Docker</span>, 
-<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">OMPL</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">CI/CD</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Nomad</span>, 
@@ -111,9 +110,9 @@ The main innovations here were the tilting arm mechanism for fast pitch response
 
 I used ROS to stream the IMU data from a PX4 flight controller, run the iLQR controller in a node and send back attitude commands via Mavlink to the PX4. 
 
-I learned how to setup a realistic simulation in Gazebo including the estimation of drag coefficient of the ping pong ball the bouncing coefficients. 
+I learned how to setup a realistic simulation in Gazebo including the estimation of drag  and boucing coefficients of the ping pong ball. 
 
-I also experimented with different controllers such as PID, LQR and MCP until I found one that achieved the required performance.
+I also experimented with different controllers such as PID, LQR, iLQR and MCP until I found one that achieved the required performance.
 
 Furthermore, to find the right trajectory to follow by the controller, a minimum snap trajectory planner was implemented with contraints on the estimated hitting 3D position of the ping pong ball.
 
@@ -167,7 +166,6 @@ I choose the components, 3D printed the parts and soldered the electrical compon
 <p>&#11088; <strong>Main challenge: </strong> Tune a controller for low frequency adujstment of a self-balacing robot.</p>
 
 Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
-<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Linux</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Controllers</span>
 
