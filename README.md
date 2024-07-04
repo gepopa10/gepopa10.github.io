@@ -135,7 +135,26 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 
 ## Autonomous Lawn Mower Robot
 
+![Simulation](rviz_uwb.png)
 
+I developed an autonomous lawn mower robot that uses UWBs sensors for localization.
+
+![Mower](mower.gif)
+
+I used an open source boustrophedon path planner to achieve full surface coverage.
+
+Also, I developed a differential drive controller for a differential wheel robot. 
+
+The robot was built from scratch with low cost components as a proof of concept.
+
+<p>&#11088; <strong>Main challenge: </strong> Achieve good trajectory tracking accuracy with low cost material.</p>
+
+Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++11</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">ROS</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">UWB</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Optimization</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Controllers</span>
 
 # Education
 
