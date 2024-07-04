@@ -93,7 +93,7 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 ![Simulation](Vrep_simulation.gif)
 ![Lab setup](hitting_motion.gif)
 
-To help rehabilitate, I developed an autonomous drone that can play ping pong with them. 
+To help rehabilitate people, I developed an autonomous drone that can play ping pong with them. 
 
 Here is what the drone looked like:
 
@@ -101,7 +101,7 @@ Here is what the drone looked like:
 
 I designed this robotic system from scratch during my master's degree, choosing the components, designing the 3D printed parts and coding the algorithms required to play ping pong autonomously.
 
-The architecture was composed of an inner loop responsible of attitude control of the drone at a higher rate and a trajectory tracking controller running on an onboard computer responsible of feeding the angular rate to aformentioned attitude controller. 
+The architecture was composed of an inner loop responsible of attitude control of the drone at a higher rate and a trajectory tracking controller running on an onboard computer responsible of feeding the angular rate to the aforementioned attitude controller. 
 
 ![Architecture](software_architecture.png)
 
