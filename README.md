@@ -88,6 +88,25 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Serial</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Raspberry Pi</span>
 
+## Chaning people life's at the Intelligent Systems and Mechatronics Lab
+
+![Simulation](Vrep_simulation.gif)
+![Lab setup](hitting_motion.gif)
+
+To help rehabilitate, I developed an autonomous drone that can play ping pong with them. 
+
+Here is what the drone looked like:
+
+![Drone](drone.png)
+
+I designed this robotic system from scratch during my master's degree, choosing the components, designing the 3D printed parts and coding the algorithms required to play ping pong autonomously.
+
+The architecture was composed of an inner loop responsible of attitude control of the drone at a higher rate and a trajectory tracking controller running on an onboard computer responsible of feeding the angular rate to aformentioned attitude controller. 
+
+![Architecture](software_architecture.png)
+
+The main innovations here were the tilting arm mechanism for fast pitch response time and the iLQR controller that enables aggressive trajectory tracking with its predictive capability.
+
 *** 
 
 # Projects
