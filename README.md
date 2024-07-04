@@ -156,6 +156,37 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Optimization</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Controllers</span>
 
+## Self-balancing robot
+
+![Segway](segway.gif)
+
+I developed a self-balacing robot using stepper motors and a Raspberry Pi. 
+
+I choose the components, 3D printed the parts and soldered the electrical components such as the motor controller.
+
+<p>&#11088; <strong>Main challenge: </strong> Tune a controller for low frequency adujstment of a self-balacing robot.</p>
+
+Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Linux</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Controllers</span>
+
+## Autonomous solar panel monitoring with an aerial robot
+
+![Elikos](elikos.jpeg)
+
+I was a member of Elikos, a student club dedicated to the development of autonomous unmanned aerial vehicles to participate at the Unmanned Systems Canada Student UAS Competition.
+
+The goal of the competition was to monitor a solar panel farm.
+
+I was responsible of telecommunications and flight tests.
+
+<p>&#11088; <strong>Main challenge: </strong> Achieve reliable telecommunication at long ranges.</p>
+
+Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">PX4</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Linux</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Telecommunications</span>
+
 # Education
 
 # Hobbies
