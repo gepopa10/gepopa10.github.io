@@ -187,7 +187,28 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Linux</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Telecommunications</span>
 
+***
+
 # Education
+
+### Master of Applied Sciences: Mechanical Engineering
+- Graduated in 2020
+- Polytechnic School of Montreal
+- GPA 4/4
+
+### Bachelor's Degree: Aerospace Engineering
+- Graduated in 2018
+- Polytechnic School of Montreal
+- GPA 3.89/4
+
+***
 
 # Hobbies
 
+I like being active and thus enjoy
+- bodybuilding
+- hiking
+- cycling
+
+Here is a picture of me on top of Gingilos moutain, Crete, Greece in 2024.
+![Hike](hike.png)
