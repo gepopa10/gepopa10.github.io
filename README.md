@@ -42,11 +42,11 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 
 As part of the motion planning team, I developed a driver to send joint commands to a FANUC robot over Ethernet. 
 
-I enabled the use of collaborative robots by developing a maximum speed and acceleration trajectory planned based on polynomials.
+I enabled the use of collaborative robots by developing a maximum speed and acceleration trajectory planner based on polynomials.
 
 I also worked on reducing the toolpath planning time by benchmarking different sampling-based algorithms from OMPL on custom scenarios.
 
-Finally, I worked in developing a deployment application that loads binaries from our servers and deploys them on customers computers as docker containers. 
+Finally, I worked on developing a deployment application that loads binaries from our servers and deploys them on customers computers as docker containers. 
 
 <p>&#11088; <strong>Main challenge: </strong> Reduce motion planning time for a wide range of scenarios.</p>
 
