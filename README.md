@@ -46,6 +46,8 @@ I enabled the use of collaborative robots by developing a maximum speed and acce
 
 I also worked on reducing the toolpath planning time by benchmarking different sampling-based algorithms from OMPL on custom scenarios.
 
+![Robotpath](rpath.gif)
+
 Finally, I worked on developing a deployment application that loads binaries from our servers and deploys them on customers computers as docker containers. 
 
 <p>&#11088; <strong>Main challenge: </strong> Reduce motion planning time for a wide range of scenarios.</p>
@@ -107,9 +109,33 @@ The architecture was composed of an inner loop responsible of attitude control o
 
 The main innovations here were the tilting arm mechanism for fast pitch response time and the iLQR controller that enables aggressive trajectory tracking with its predictive capability.
 
+I used ROS to stream the IMU data from a PX4 flight controller, run the iLQR controller in a node and send back attitude commands via Mavlink to the PX4. 
+
+I learned how to setup a realistic simulation in Gazebo including the estimation of drag coefficient of the ping pong ball the bouncing coefficients. 
+
+I also experimented with different controllers such as PID, LQR and MCP until I found one that achieved the required performance.
+
+Furthermore, to find the right trajectory to follow by the controller, a minimum snap trajectory planner was implemented with contraints on the estimated hitting 3D position of the ping pong ball.
+
+<p>&#11088; <strong>Main challenge: </strong> Achieve aggressive trajectory tracking with a drone precisely enough to hit a ping pong ball in flight.</p>
+
+The paper "[Design and development of a novel type of table tennis aerial robot player with tilting propellers](https://www.sciencedirect.com/science/article/pii/S0957415821000015)" was published about the project.
+
+Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++11</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">ROS</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">PX4</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Mavlink</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Optimization</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Controllers</span>
+
 *** 
 
 # Projects
+
+## Autonomous Lawn Mower Robot
+
+
 
 # Education
 
