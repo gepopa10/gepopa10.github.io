@@ -63,6 +63,31 @@ Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Optimization</span>, 
 <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Networking</span>
 
+## Transform the healthcare infrastructure at [Humanitas](https://www.humanitas.io/)
+
+![Trilateration with 3 beacons](trilateration.png)
+
+I worked on a ground robot that was responsible of delivering goods in a hospital.
+
+My main task was to develop a localization solution using UWB (ultra-wide band) sensors (DW1000) as beacons and a trilateration algorithm to locate the robot indoors.
+
+Compared to Wifi signals, UWBs sensors can improve localization precision but they need an unobstructed line of sight. I used the serial port to receive the distance reported by the sensors into a Raspberry Pi 4 and stream it over Wifi to the main computer on the robot.
+
+I also design the robotic system by chosing sensors such as sonars, wheels encoder and radar for improved localization and obstacle avoidance. I integrated them in with [ROS Navigation Stack](https://github.com/ros-planning/navigation).
+
+Furthermore, I used PX4 as a microcontroller to actuate the wheels. This required modifying the PX4 firmware to support my type of steering system for manual teleoperation with a joystick.
+
+<p>&#11088; <strong>Main challenge: </strong> Emulate an UWB sensor for testing.</p>
+
+Skills: <span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">C++14</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Embedded</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">ROS</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Nav</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Python</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">PX4</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Serial</span>, 
+<span style="background-color: #0077B5; color: white; border-radius: 6px; padding: 3px 3px; font-weight: bold;">Raspberry Pi</span>
+
 *** 
 
 # Projects
