@@ -211,4 +211,4 @@ I like being active and thus enjoy
 - cycling
 
 Here is a picture of me on top of Gingilos moutain, Crete, Greece in 2024.
-![Hike](hike.png)
+![Hike](hike.jpg)
