@@ -1,0 +1,793 @@
+---
+title: "How Do You Intercept a Dangerously Fast Drone?"
+date: 2026-03-01 10:00:00 +0000
+categories: [Robotics, Drones]
+tags: [drones, guidance, robotics, control-systems, event-camera]
+image:
+  path: /drone_interception_preview.gif
+  alt: "Drone interception simulation"
+---
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+.dp {
+  --accent: #e84545;
+  --accent-glow: rgba(232, 69, 69, 0.15);
+  --blue: #4a9eff;
+  --blue-dim: rgba(74, 158, 255, 0.12);
+  --green: #3ecf8e;
+  --green-dim: rgba(62, 207, 142, 0.12);
+  --yellow: #f0c040;
+  --surface: #1a1e26;
+  --border: #2a3040;
+  --text-dim: #7a8499;
+  --mono: 'Space Mono', monospace;
+}
+
+.dp p { margin-bottom: 24px; }
+
+.dp strong { color: #fff; }
+
+.dp .callout {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  padding: 22px 26px;
+  margin: 36px 0;
+  border-radius: 0 8px 8px 0;
+  font-size: 16px;
+}
+.dp .callout p { margin-bottom: 0; color: var(--text-dim); }
+.dp .callout strong { color: var(--accent); }
+
+.dp .phase-tag {
+  display: inline-block;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.dp .phase-tag.radar     { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(232,69,69,0.3); }
+.dp .phase-tag.midcourse { background: var(--blue-dim);    color: var(--blue);   border: 1px solid rgba(74,158,255,0.3); }
+.dp .phase-tag.terminal  { background: var(--green-dim);   color: var(--green);  border: 1px solid rgba(62,207,142,0.3); }
+
+.dp .post-note {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid #2a3040;
+  font-size: 14px;
+  color: #7a8499;
+  line-height: 1.7;
+}
+
+/* ── Simulator shared styles ── */
+.sim-wrap {
+  background: #0e1118;
+  border: 1px solid #2a3040;
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 48px 0;
+}
+.sim-hdr {
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a3040;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sim-title {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #7a8499;
+}
+.sim-eq {
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a3040;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sim-controls { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+.sim-control  { display: flex; align-items: center; gap: 8px; }
+.sim-control label {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: #7a8499;
+  white-space: nowrap;
+}
+.sim-control input[type="range"] { width: 90px; accent-color: #e84545; cursor: pointer; }
+.sim-control .val {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: #4a9eff;
+  min-width: 42px;
+  text-align: right;
+}
+.eq-operator { font-size: 20px; color: rgba(255,255,255,0.18); margin: 0 12px; padding-bottom: 16px; }
+.eq-part { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.eq-value {
+  font-family: 'Space Mono', monospace;
+  font-size: 26px;
+  font-weight: 700;
+  min-width: 48px;
+  text-align: center;
+  line-height: 1;
+  transition: color 0.3s ease;
+}
+.eq-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7a8499;
+}
+.eq-pulse { animation: eqPulse 0.35s cubic-bezier(0.16,1,0.3,1); }
+@keyframes eqPulse { 0%{transform:scale(1)} 40%{transform:scale(1.15)} 100%{transform:scale(1)} }
+
+.sim-canvas-wrap { position: relative; width: 100%; aspect-ratio: 16/9; background: #0a0c10; }
+.sim-canvas-wrap.sq { aspect-ratio: 4/3; }
+canvas { width: 100%; height: 100%; display: block; }
+
+.sim-ftr {
+  padding: 12px 20px;
+  border-top: 1px solid #2a3040;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sim-status { font-family: 'Space Mono', monospace; font-size: 11px; color: #7a8499; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-family: 'Space Mono', monospace; font-size: 10px; color: #7a8499; }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+</style>
+
+<!-- ══════════════════════════════════════════ SECTION 1: INTRO + RADAR -->
+<div class="dp">
+
+<p>You see a threatening unmanned aerial vehicle (UAV) heading towards your neighborhood at high speed.</p>
+
+<p>What's the best strategy to neutralize it?</p>
+
+<p>Simple. Take it down with a missile… Wait, that's too costly…</p>
+
+<p>Another approach would be to use a relatively low cost drone to do a kinetic interception (collision).</p>
+
+<p>But what exactly would you need to make it work?</p>
+
+<p>First, you need to detect the position of the intruder.</p>
+
+<p>That can be achieved with a ground radar monitoring the neighbourhood.</p>
+
+<p>Aerial vehicles are composed of metals that can be detected with radars.</p>
+
+<p>However, there is an issue… By the time the radar measures the target's position and that information reaches the interceptor, the target has already moved.</p>
+
+<p>As you can see below, the higher the latency and the faster the target, the larger the gap between its estimated position and its actual position.</p>
+
+</div>
+
+<!-- ══════════════════════════════════════════ LATENCY SIMULATOR -->
+<div class="sim-wrap">
+  <div class="sim-eq">
+    <div class="sim-controls">
+      <div class="sim-control">
+        <label>Speed</label>
+        <input type="range" id="sliderSpeed" min="5" max="50" value="20" step="1">
+        <span class="val" id="valSpeed">20 m/s</span>
+      </div>
+      <div class="sim-control">
+        <label>Latency</label>
+        <input type="range" id="sliderLatency" min="0" max="300" value="100" step="10">
+        <span class="val" id="valLatency">100 ms</span>
+      </div>
+    </div>
+    <span class="eq-operator">=</span>
+    <div class="eq-part">
+      <span class="eq-value" id="eqResult" style="color:#f0c040">2.0</span>
+      <span class="eq-label">error (m)</span>
+    </div>
+  </div>
+  <div class="sim-canvas-wrap">
+    <canvas id="simCanvas"></canvas>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ SECTION 2: CORRECTION + COLLISION TRIANGLE -->
+<div class="dp">
+
+<p>How can you correct that?</p>
+
+<p>A simple approach is to assume the target moves at constant velocity and estimate where it will be 100 ms later, when the measurement finally reaches you.</p>
+
+<p>Ok, nice, now at least you know where the intruder is approximately.</p>
+
+<p>But how do you actually plan the interception?</p>
+
+<p>One way would be to use a collision triangle.</p>
+
+<p>Knowing the interceptor's maximum speed, the target's speed, and its direction of motion, you can compute the required attack angle.</p>
+
+<p>Below you can see how it takes shape.</p>
+
+<div class="callout">
+  <p><strong>Challenge:</strong> Can you find at which speed and angle interception is impossible?</p>
+</div>
+
+</div>
+
+<!-- ══════════════════════════════════════════ COLLISION TRIANGLE -->
+<div class="sim-wrap">
+  <div class="sim-eq">
+    <div class="sim-controls">
+      <div class="sim-control">
+        <label>Target angle</label>
+        <input type="range" id="sliderAngle" min="-10" max="10" value="-5" step="1">
+        <span class="val" id="valAngle">-5°</span>
+      </div>
+      <div class="sim-control">
+        <label>Target speed</label>
+        <input type="range" id="sliderTargetSpeed" min="5" max="60" value="20" step="1">
+        <span class="val" id="valTargetSpeed">20 m/s</span>
+      </div>
+    </div>
+  </div>
+  <div class="sim-canvas-wrap">
+    <canvas id="triCanvas"></canvas>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ SECTION 3: MID-COURSE + LATENCY PROBLEM -->
+<div class="dp">
+
+<p>Great. Now you can activate full thrust and head towards the target fast.</p>
+
+<p>Adjustments are needed along the way if the target slows down or if there is wind moving the interceptor.</p>
+
+<p>Knowing the position of both the interceptor and the target from the radar helps you guide the interceptor in the right direction.</p>
+
+<p>But…there is a big caveat here. Yes, you guessed it. Latency.</p>
+
+<p>Radar gives us positioning but at the cost of latency which is ok for general direction but when the interceptor is closer to the target not so much.</p>
+
+<p>You are rightfully suspicious here. It becomes very difficult to achieve a direct collision with a fast target using position estimates alone.</p>
+
+<p>So what do you do?</p>
+
+<p>You need to get rid of latency.</p>
+
+<p>For that, there is only one option… having a sensor onboard the interceptor that can locate the target.</p>
+
+<p>An event camera here could do the trick.</p>
+
+<p>Because they detect changes in brightness at each pixel rather than capturing full images, they can operate at extremely high update rates.</p>
+
+<p>Therefore, the relative position of the moving target to the interceptor is updated fast.</p>
+
+<p>The interceptor can react quickly and adjust its direction.</p>
+
+<p>How would that look in practice?</p>
+
+<p>Pixels are detected in the camera frame and the interceptor must steer to maintain those events centered.</p>
+
+<p>If the detected pixels are on the right, the interceptor should tilt right.</p>
+
+<p>If they are left, it should tilt left.</p>
+
+<p>When the detected pixels are centered, the interceptor is locked on the target and collision is imminent.</p>
+
+</div>
+
+<!-- ══════════════════════════════════════════ EVENT CAMERA ANIMATION -->
+<div class="sim-wrap">
+  <div class="sim-canvas-wrap sq">
+    <canvas id="evtCanvas"></canvas>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ SECTION 4: CONCLUSION -->
+<div class="dp">
+
+<p>That's it. A three phase kinetic collision system.</p>
+
+<p>Position the target in space. Align the interceptor towards it. Collide with a high frequency feedback loop.</p>
+
+</div>
+
+<!-- ══════════════════════════════════════════ SCRIPTS -->
+<script>
+// ── Latency / Perception Gap ──────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('simCanvas');
+  const ctx = canvas.getContext('2d');
+  const sliderSpeed   = document.getElementById('sliderSpeed');
+  const sliderLatency = document.getElementById('sliderLatency');
+  const valSpeed      = document.getElementById('valSpeed');
+  const valLatency    = document.getElementById('valLatency');
+  const eqResult      = document.getElementById('eqResult');
+  // const gapEl         = document.getElementById('simGap');
+
+  function updateEq() {
+    const g = parseFloat(sliderSpeed.value) * parseFloat(sliderLatency.value) / 1000;
+    eqResult.textContent = g.toFixed(1);
+    eqResult.style.color = g > 5 ? '#e84545' : g > 2 ? '#f0c040' : '#3ecf8e';
+    eqResult.classList.remove('eq-pulse');
+    void eqResult.offsetWidth;
+    eqResult.classList.add('eq-pulse');
+  }
+  sliderSpeed.addEventListener('input',   () => { valSpeed.textContent   = sliderSpeed.value   + ' m/s'; updateEq(); });
+  sliderLatency.addEventListener('input', () => { valLatency.textContent = sliderLatency.value + ' ms';  updateEq(); });
+
+  let W, H, dpr;
+  function resize() {
+    const r = canvas.parentElement.getBoundingClientRect();
+    dpr = window.devicePixelRatio || 1; W = r.width; H = r.height;
+    canvas.width = W*dpr; canvas.height = H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); window.addEventListener('resize', resize);
+
+  let t = 0, packets = [], lastPkt = 0;
+
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    const speed = parseFloat(sliderSpeed.value), latMs = parseFloat(sliderLatency.value);
+    const gapM = speed * latMs / 1000;
+    // gapEl.textContent = 'Gap: ' + gapM.toFixed(1) + ' m';
+    // gapEl.style.color = gapM > 5 ? '#e84545' : gapM > 2 ? '#f0c040' : '#3ecf8e';
+
+    const dt = 1/60; t += dt;
+    const groundY = H*0.62, skyY = H*0.22;
+    const radarX = W*0.5, radarY = groundY+12;
+    const intBaseX = W*0.18, intBaseY = groundY;
+    const m2px = (W*0.45)/15;
+    const gapPx = gapM * m2px;
+    const vspd = W/7;
+    const totalTravel = W*0.7 + gapPx + 60;
+    const rawX = (t*vspd) % totalTravel;
+    const actualX = W*0.85 - rawX, actualY = skyY;
+    const percX = actualX + gapPx, percY = skyY;
+
+    // Ground
+    ctx.fillStyle='#111318'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='#252a35'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+    ctx.strokeStyle='rgba(42,48,64,0.4)'; ctx.lineWidth=0.7;
+    for(let i=0;i<W+40;i+=10){ctx.beginPath();ctx.moveTo(i,groundY);ctx.lineTo(i-14,groundY+14);ctx.stroke();}
+
+    // Radar
+    const rW=20,rH=28;
+    ctx.fillStyle='#1e2230'; ctx.strokeStyle='#3a4258'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(radarX-rW/2,radarY-rH,rW,rH,3); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='#4a5570'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(radarX,radarY-rH); ctx.lineTo(radarX,radarY-rH-12); ctx.stroke();
+    ctx.beginPath(); ctx.arc(radarX,radarY-rH-12,8,Math.PI*1.15,Math.PI*1.85);
+    ctx.strokeStyle='#5a6580'; ctx.lineWidth=2; ctx.stroke();
+    ctx.font='10px "Space Mono",monospace'; ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.textAlign='center';
+    ctx.fillText('RADAR',radarX,radarY+16);
+
+    // Interceptor
+    const iW=32,iH=14;
+    ctx.fillStyle='rgba(74,158,255,0.15)'; ctx.strokeStyle='rgba(74,158,255,0.5)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(intBaseX-iW/2,intBaseY-iH-2,iW,iH,3); ctx.fill(); ctx.stroke();
+    const ps=6*Math.sin(t*12); ctx.strokeStyle='rgba(74,158,255,0.4)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(intBaseX-10-ps,intBaseY-iH-4); ctx.lineTo(intBaseX-10+ps,intBaseY-iH-4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(intBaseX+10-ps,intBaseY-iH-4); ctx.lineTo(intBaseX+10+ps,intBaseY-iH-4); ctx.stroke();
+    ctx.font='10px "Space Mono",monospace'; ctx.fillStyle='rgba(74,158,255,0.6)'; ctx.textAlign='center';
+    ctx.fillText('INTERCEPTOR',intBaseX,intBaseY+16);
+
+    // Packets
+    if(t-lastPkt>0.5){ lastPkt=t; packets.push({born:t,progress:0}); }
+    const radarTop={x:radarX,y:radarY-rH-20};
+    const percVisible=percX>0&&percX<W;
+    const percPt={x:percVisible?percX:radarX,y:percVisible?percY:radarTop.y-30};
+    const intPt={x:intBaseX,y:intBaseY-iH-2};
+    for(let i=packets.length-1;i>=0;i--){
+      const p=packets[i]; p.progress+=2.2*dt;
+      let px,py,op;
+      if(p.progress<1){const f=p.progress;px=radarTop.x+(percPt.x-radarTop.x)*f;py=radarTop.y+(percPt.y-radarTop.y)*f;op=0.7;}
+      else if(p.progress<2){const f=p.progress-1;px=percPt.x+(radarTop.x-percPt.x)*f;py=percPt.y+(radarTop.y-percPt.y)*f;op=0.6;}
+      else if(p.progress<3){const f=p.progress-2;px=radarTop.x+(intPt.x-radarTop.x)*f;py=radarTop.y+(intPt.y-radarTop.y)*f;op=0.5;}
+      else{packets.splice(i,1);continue;}
+      ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,'+op+')';ctx.fill();
+      ctx.beginPath();ctx.arc(px,py,7,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,'+(op*0.15)+')';ctx.fill();
+    }
+    // Dashed data lines
+    if(percVisible){
+      ctx.strokeStyle='rgba(240,192,64,0.15)';ctx.lineWidth=1;ctx.setLineDash([4,6]);
+      ctx.beginPath();ctx.moveTo(radarTop.x,radarTop.y);ctx.lineTo(percX,percY);ctx.stroke();ctx.setLineDash([]);
+    }
+    ctx.strokeStyle='rgba(240,192,64,0.12)';ctx.lineWidth=1;ctx.setLineDash([4,6]);
+    ctx.beginPath();ctx.moveTo(radarTop.x,radarTop.y);ctx.lineTo(intBaseX,intBaseY-iH-2);ctx.stroke();ctx.setLineDash([]);
+
+    const bothVis=actualX>20&&actualX<W-20&&percX>20&&percX<W-20;
+    if(bothVis&&gapPx>6){
+      ctx.fillStyle='rgba(240,192,64,0.04)';ctx.fillRect(actualX,skyY-28,gapPx,56);
+      const aY=skyY-36;
+      ctx.strokeStyle='rgba(240,192,64,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(actualX+2,aY);ctx.lineTo(percX-2,aY);ctx.stroke();
+      ctx.fillStyle='rgba(240,192,64,0.5)';
+      ctx.beginPath();ctx.moveTo(actualX+2,aY);ctx.lineTo(actualX+8,aY-3);ctx.lineTo(actualX+8,aY+3);ctx.fill();
+      ctx.beginPath();ctx.moveTo(percX-2,aY);ctx.lineTo(percX-8,aY-3);ctx.lineTo(percX-8,aY+3);ctx.fill();
+      ctx.font='bold 13px "Space Mono",monospace';ctx.fillStyle=gapM>5?'#e84545':gapM>2?'#f0c040':'#3ecf8e';ctx.textAlign='center';
+      ctx.fillText(gapM.toFixed(1)+' m',(actualX+percX)/2,aY-10);ctx.textAlign='left';
+    }
+
+    // Perceived dot
+    if(percX>-20&&percX<W+20){
+      ctx.beginPath();ctx.arc(percX,percY,14,0,Math.PI*2);ctx.strokeStyle='rgba(74,158,255,0.25)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.stroke();ctx.setLineDash([]);
+      ctx.beginPath();ctx.arc(percX,percY,5,0,Math.PI*2);ctx.fillStyle='rgba(74,158,255,0.4)';ctx.fill();
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.55)';ctx.textAlign='center';ctx.fillText('perceived',percX,percY+26);ctx.textAlign='left';
+    }
+    // Actual dot
+    if(actualX>-20&&actualX<W+20){
+      ctx.beginPath();ctx.arc(actualX,actualY,14,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.1)';ctx.fill();
+      ctx.strokeStyle='#e84545';ctx.lineWidth=2;ctx.stroke();
+      ctx.beginPath();ctx.arc(actualX,actualY,5,0,Math.PI*2);ctx.fillStyle='#e84545';ctx.fill();
+      ctx.strokeStyle='rgba(232,69,69,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(actualX-8,actualY);ctx.lineTo(actualX-22,actualY);ctx.stroke();
+      ctx.fillStyle='rgba(232,69,69,0.5)';ctx.beginPath();ctx.moveTo(actualX-22,actualY);ctx.lineTo(actualX-17,actualY-3);ctx.lineTo(actualX-17,actualY+3);ctx.fill();
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.75)';ctx.textAlign='center';ctx.fillText('actual',actualX,actualY+26);ctx.textAlign='left';
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<script>
+// ── Collision Triangle ────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('triCanvas');
+  const ctx = canvas.getContext('2d');
+  const sliderAngle       = document.getElementById('sliderAngle');
+  const sliderTargetSpeed = document.getElementById('sliderTargetSpeed');
+  const valAngle          = document.getElementById('valAngle');
+  const valTargetSpeed    = document.getElementById('valTargetSpeed');
+  sliderAngle.addEventListener('input',       () => valAngle.textContent       = sliderAngle.value       + '°');
+  sliderTargetSpeed.addEventListener('input', () => valTargetSpeed.textContent = sliderTargetSpeed.value + ' m/s');
+
+  let W, H, dpr;
+  function resize() {
+    const r = canvas.parentElement.getBoundingClientRect();
+    dpr = window.devicePixelRatio||1; W=r.width; H=r.height;
+    canvas.width=W*dpr; canvas.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); window.addEventListener('resize', resize);
+
+  let t=0, particles=[], explosionTime=-999, expX=0, expY=0;
+  function spawnExplosion(x,y){
+    expX=x;expY=y;explosionTime=t;particles=[];
+    for(let i=0;i<30;i++){
+      const a=Math.random()*Math.PI*2,spd=30+Math.random()*90,life=0.4+Math.random()*0.7;
+      particles.push({x,y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life,maxLife:life,size:1.5+Math.random()*3.5,type:Math.random()});
+    }
+  }
+  function drawExplosion(){
+    const age=t-explosionTime; if(age>1.5) return;
+    if(age<0.15){const r=10+age*220,a=Math.max(0,0.6-age*4);ctx.beginPath();ctx.arc(expX,expY,r,0,Math.PI*2);ctx.fillStyle='rgba(255,200,80,'+a+')';ctx.fill();ctx.beginPath();ctx.arc(expX,expY,r*0.4,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,'+(a*0.7)+')';ctx.fill();}
+    const dt2=1/60;
+    for(const p of particles){p.x+=p.vx*dt2;p.y+=p.vy*dt2;p.vy+=45*dt2;p.vx*=0.98;p.vy*=0.98;p.life-=dt2;if(p.life<=0)continue;const al=(p.life/p.maxLife)*0.8;let c;if(p.type<0.3)c='rgba(232,69,69,'+al+')';else if(p.type<0.6)c='rgba(255,160,50,'+al+')';else c='rgba(255,230,150,'+al+')';ctx.beginPath();ctx.arc(p.x,p.y,p.size*(p.life/p.maxLife),0,Math.PI*2);ctx.fillStyle=c;ctx.fill();}
+    if(age>0.05&&age<1.2){const rr=8+age*55,ra=Math.max(0,0.15-age*0.12);ctx.beginPath();ctx.arc(expX,expY,rr,0,Math.PI*2);ctx.strokeStyle='rgba(200,150,80,'+ra+')';ctx.lineWidth=2+age*3;ctx.stroke();}
+  }
+
+  const INT_MAX_MS=30, MAX_TILT=45;
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    const dt=1/60; t+=dt;
+    const angleDeg=parseFloat(sliderAngle.value), angleRad=angleDeg*Math.PI/180;
+    const tgtSpeedMs=parseFloat(sliderTargetSpeed.value);
+    const groundY=H*0.85, intBaseX=W*0.35, intBaseY=groundY;
+    const tgtEntryX=W*0.92, tgtEntryY=H*0.38;
+    const ndx=-Math.cos(angleRad), ndy=Math.sin(angleRad);
+    const baseScr=W/6, tgtScr=baseScr*(tgtSpeedMs/20), intMaxScr=baseScr*(INT_MAX_MS/20);
+    const totalRay=Math.sqrt((intBaseX-W*0.05-tgtEntryX)**2+((groundY-30)-tgtEntryY)**2)*1.3;
+
+    let bCX=null,bCY=null,bTCol=null,bIntSpd=null,canInt=false;
+    for(let frac=0.1;frac<=1.0;frac+=0.005){
+      const s=frac*totalRay,cx=tgtEntryX+ndx*s,cy=tgtEntryY+ndy*s;
+      if(cx<W*0.05||cx>W*0.9||cy<H*0.05||cy>groundY-20) continue;
+      const tTgt=s/tgtScr; if(tTgt<0.3) continue;
+      const idx=cx-intBaseX,idy=cy-intBaseY,iDist=Math.sqrt(idx*idx+idy*idy);
+      const tilt=Math.atan2(Math.abs(idx),Math.abs(intBaseY-cy))*180/Math.PI;
+      if(tilt>MAX_TILT) continue;
+      if(iDist/tTgt<=intMaxScr){bCX=cx;bCY=cy;bTCol=tTgt;bIntSpd=iDist/tTgt;canInt=true;break;}
+    }
+    let missCX,missCY,missTCol,missSpd,bestMiss=Infinity;
+    if(!canInt){
+      for(let frac=0.15;frac<=1.0;frac+=0.005){
+        const s=frac*totalRay,cx=tgtEntryX+ndx*s,cy=tgtEntryY+ndy*s;
+        if(cx<W*0.05||cx>W*0.9||cy<H*0.05||cy>groundY-20) continue;
+        const tTgt=s/tgtScr; if(tTgt<0.3) continue;
+        const idx=cx-intBaseX,idy=cy-intBaseY,iDist=Math.sqrt(idx*idx+idy*idy);
+        const tilt=Math.atan2(Math.abs(idx),Math.abs(intBaseY-cy))*180/Math.PI;
+        if(tilt>MAX_TILT) continue;
+        const diff=Math.abs(tTgt-iDist/intMaxScr);
+        if(diff<bestMiss){bestMiss=diff;missCX=cx;missCY=cy;missTCol=tTgt;missSpd=intMaxScr;}
+      }
+      if(!missCX){missCX=intBaseX;missCY=H*0.3;missTCol=2;missSpd=intMaxScr;}
+    }
+    const cX=canInt?bCX:missCX, cY=canInt?bCY:missCY, tCol=canInt?bTCol:missTCol, intSpd=canInt?bIntSpd:missSpd;
+    const iDist=Math.sqrt((cX-intBaseX)**2+(cY-intBaseY)**2);
+    const intAngle=Math.atan2(cX-intBaseX,intBaseY-cY);
+    const iDX=(cX-intBaseX)/iDist,iDY=(cY-intBaseY)/iDist;
+    const animDur=canInt?tCol*1.6:tCol*1.8;
+    const animT=t%animDur;
+    if(animT<dt*2){explosionTime=-999;particles=[];}
+    const tgtX=tgtEntryX+ndx*tgtScr*animT, tgtY=tgtEntryY+ndy*tgtScr*animT;
+    const iTrav=Math.min(intSpd*animT,iDist), iX=intBaseX+iDX*iTrav, iY=intBaseY+iDY*iTrav;
+    const collided=canInt&&animT>=tCol;
+    if(collided&&(t-explosionTime)>animDur*0.8) spawnExplosion(cX,cY);
+
+    // Ground
+    ctx.fillStyle='#111318';ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='#252a35';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(W,groundY);ctx.stroke();
+    ctx.strokeStyle='rgba(42,48,64,0.4)';ctx.lineWidth=0.7;
+    for(let i=0;i<W+40;i+=10){ctx.beginPath();ctx.moveTo(i,groundY);ctx.lineTo(i-14,groundY+14);ctx.stroke();}
+
+    // Paths
+    ctx.strokeStyle=!canInt?'rgba(232,69,69,0.15)':'rgba(232,69,69,0.1)';ctx.lineWidth=1;ctx.setLineDash([5,6]);
+    ctx.beginPath();ctx.moveTo(tgtEntryX+40,tgtEntryY-40*(ndy/ndx));
+    ctx.lineTo(tgtEntryX+ndx*tgtScr*animDur,tgtEntryY+ndy*tgtScr*animDur);ctx.stroke();
+    ctx.strokeStyle='rgba(74,158,255,0.1)';ctx.beginPath();ctx.moveTo(intBaseX,intBaseY);ctx.lineTo(cX,cY);ctx.stroke();ctx.setLineDash([]);
+
+    // Triangle fill
+    const sGnd=Math.abs(ndy)>0.001?(groundY-tgtEntryY)/ndy:9999;
+    ctx.fillStyle=!canInt?'rgba(232,69,69,0.01)':'rgba(255,255,255,0.015)';
+    ctx.strokeStyle=!canInt?'rgba(232,69,69,0.06)':'rgba(255,255,255,0.06)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(intBaseX,intBaseY);ctx.lineTo(cX,cY);ctx.lineTo(Math.min(tgtEntryX+sGnd*ndx,W*0.95),intBaseY);ctx.closePath();ctx.fill();ctx.stroke();
+
+    // Collision/miss marker
+    if(canInt){
+      const pulse=0.5+0.5*Math.sin(t*3);
+      ctx.beginPath();ctx.arc(cX,cY,6+pulse*3,0,Math.PI*2);ctx.fillStyle='rgba(62,207,142,'+(0.05+pulse*0.03)+')';ctx.fill();
+      ctx.beginPath();ctx.arc(cX,cY,4,0,Math.PI*2);ctx.fillStyle='#3ecf8e';ctx.fill();
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(62,207,142,0.65)';ctx.textAlign='center';ctx.fillText('collision',cX,cY-12);ctx.textAlign='left';
+    } else {
+      ctx.strokeStyle='rgba(232,69,69,0.4)';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(cX-6,cY-6);ctx.lineTo(cX+6,cY+6);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cX+6,cY-6);ctx.lineTo(cX-6,cY+6);ctx.stroke();
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.5)';ctx.textAlign='center';ctx.fillText('miss',cX,cY-12);ctx.textAlign='left';
+    }
+
+    // Target
+    if((!collided)&&tgtX>-30&&tgtX<W+30&&tgtY>-30&&tgtY<H+30){
+      ctx.beginPath();ctx.arc(tgtX,tgtY,12,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.07)';ctx.fill();
+      ctx.strokeStyle='#e84545';ctx.lineWidth=2;ctx.stroke();
+      ctx.beginPath();ctx.arc(tgtX,tgtY,4,0,Math.PI*2);ctx.fillStyle='#e84545';ctx.fill();
+      ctx.strokeStyle='rgba(232,69,69,0.45)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(tgtX+ndx*8,tgtY+ndy*8);ctx.lineTo(tgtX+ndx*22,tgtY+ndy*22);ctx.stroke();
+      ctx.fillStyle='rgba(232,69,69,0.45)';const ax=tgtX+ndx*22,ay=tgtY+ndy*22;
+      ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(ax-ndx*6-ndy*3,ay-ndy*6+ndx*3);ctx.lineTo(ax-ndx*6+ndy*3,ay-ndy*6-ndx*3);ctx.fill();
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.65)';ctx.textAlign='center';ctx.fillText('target',tgtX,tgtY-18);ctx.textAlign='left';
+    }
+
+    // Interceptor
+    if(!collided&&iTrav<iDist+1){
+      ctx.save();ctx.translate(iX,iY);ctx.rotate(intAngle);
+      const bw=24,bh=10;
+      ctx.fillStyle='rgba(74,158,255,0.15)';ctx.strokeStyle='rgba(74,158,255,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.roundRect(-bw/2,-bh/2,bw,bh,3);ctx.fill();ctx.stroke();
+      ctx.strokeStyle='rgba(74,158,255,0.35)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(-bw/2,0);ctx.lineTo(-bw/2-8,-3);ctx.moveTo(bw/2,0);ctx.lineTo(bw/2+8,-3);ctx.stroke();
+      const pw=7*Math.sin(t*16);ctx.strokeStyle='rgba(74,158,255,0.35)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(-bw/2-8-pw,-4);ctx.lineTo(-bw/2-8+pw,-4);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(bw/2+8-pw,-4);ctx.lineTo(bw/2+8+pw,-4);ctx.stroke();
+      ctx.strokeStyle='rgba(74,158,255,0.25)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(0,-bh/2-3);ctx.lineTo(0,-bh/2-18);ctx.stroke();
+      ctx.fillStyle='rgba(74,158,255,0.25)';ctx.beginPath();ctx.moveTo(0,-bh/2-18);ctx.lineTo(-3,-bh/2-13);ctx.lineTo(3,-bh/2-13);ctx.fill();
+      ctx.restore();
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.55)';ctx.textAlign='center';ctx.fillText('interceptor',iX,iY+20);ctx.textAlign='left';
+    }
+
+    // Tilt angle arc
+    const arcR=32;
+    ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+    ctx.beginPath();ctx.moveTo(intBaseX,intBaseY);ctx.lineTo(intBaseX,intBaseY-50);ctx.stroke();ctx.setLineDash([]);
+    const arcS=-Math.PI/2,arcE=-Math.PI/2+intAngle;
+    ctx.beginPath();
+    if(intAngle>=0) ctx.arc(intBaseX,intBaseY,arcR,arcS,arcE); else ctx.arc(intBaseX,intBaseY,arcR,arcE,arcS);
+    ctx.strokeStyle='rgba(74,158,255,0.35)';ctx.lineWidth=1.5;ctx.stroke();
+    const midA=(arcS+arcE)/2,lx=intBaseX+Math.cos(midA)*(arcR+14),ly=intBaseY+Math.sin(midA)*(arcR+14);
+    ctx.font='11px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.6)';ctx.textAlign='center';
+    ctx.fillText('θ='+(intAngle*180/Math.PI).toFixed(1)+'°',lx,ly);ctx.textAlign='left';
+
+    if(!canInt){
+      ctx.font='bold 14px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.6)';ctx.textAlign='center';
+      ctx.fillText('INTERCEPT IMPOSSIBLE — target too fast',W/2,H*0.06);
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.35)';
+      ctx.fillText('interceptor capped at '+INT_MAX_MS+' m/s, max tilt '+MAX_TILT+'°',W/2,H*0.06+18);ctx.textAlign='left';
+    }
+
+    drawExplosion();
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<script>
+// ── Event Camera Terminal Homing ──────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('evtCanvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, dpr;
+  function resize(){
+    const r=canvas.parentElement.getBoundingClientRect();
+    dpr=window.devicePixelRatio||1;W=r.width;H=r.height;
+    canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); window.addEventListener('resize', resize);
+
+  let particles=[], explosionTime=-999, expX=0, expY=0;
+  let tgtX,tgtY,intX,intY,collided,colTime,simT,needsReset=true;
+  let currentTgtHeading=0, targetGoingUp=false;
+
+  function spawnExplosion(x,y){
+    expX=x;expY=y;explosionTime=simT;particles=[];
+    for(let i=0;i<30;i++){
+      const a=Math.random()*Math.PI*2,spd=25+Math.random()*80;
+      particles.push({x,y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:0.3+Math.random()*0.6,maxLife:0.3+Math.random()*0.6,size:1.5+Math.random()*3,type:Math.random()});
+    }
+  }
+  function drawExplosion(){
+    const age=simT-explosionTime; if(age>1.2) return;
+    if(age<0.1){const r=8+age*200,a=Math.max(0,0.7-age*6);ctx.beginPath();ctx.arc(expX,expY,r,0,Math.PI*2);ctx.fillStyle='rgba(255,220,100,'+a+')';ctx.fill();ctx.beginPath();ctx.arc(expX,expY,r*0.35,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,'+(a*0.7)+')';ctx.fill();}
+    for(const p of particles){p.x+=p.vx/60;p.y+=p.vy/60;p.vy+=45/60;p.vx*=0.97;p.vy*=0.97;p.life-=1/60;if(p.life<=0)continue;const al=(p.life/p.maxLife)*0.8;let c;if(p.type<0.3)c='rgba(232,69,69,'+al+')';else if(p.type<0.6)c='rgba(255,170,50,'+al+')';else c='rgba(255,240,160,'+al+')';ctx.beginPath();ctx.arc(p.x,p.y,p.size*(p.life/p.maxLife),0,Math.PI*2);ctx.fillStyle=c;ctx.fill();}
+  }
+
+  const headingKF=[{t:0,a:0},{t:1.5,a:0.05},{t:2.5,a:0.20},{t:3.5,a:0.30},{t:4.5,a:0.35},{t:6,a:0.30}];
+  function lerpHeading(time){
+    if(time<=headingKF[0].t) return headingKF[0].a;
+    if(time>=headingKF[headingKF.length-1].t) return headingKF[headingKF.length-1].a;
+    for(let i=0;i<headingKF.length-1;i++){
+      if(time>=headingKF[i].t&&time<=headingKF[i+1].t){
+        const f=(time-headingKF[i].t)/(headingKF[i+1].t-headingKF[i].t),sf=f*f*(3-2*f);
+        return headingKF[i].a+(headingKF[i+1].a-headingKF[i].a)*sf;
+      }
+    }
+    return 0;
+  }
+
+  function resetSim(){simT=0;tgtX=W*0.88;tgtY=H*0.55;intX=W*0.50;intY=H*0.85;collided=false;colTime=-1;explosionTime=-999;particles=[];}
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    if(needsReset){resetSim();needsReset=false;}
+    if(collided&&simT-colTime>1.5){needsReset=true;}
+    simT+=1/60;
+    if(!collided){
+      const ddx=tgtX-intX, ddy=tgtY-intY;
+      const dd=Math.sqrt(ddx*ddx+ddy*ddy);
+
+      // Terminal phase when close enough for evasive maneuvers
+  const terminal=dd<120;
+
+      // Target: keep moving upward, but weave left-right when close
+      const close01=Math.min(1,Math.max(0,(195-dd)/90));
+      const baseUpSpeed=108;
+      const evadeAmp=0.32+0.42*close01;
+      const evadeFreq=0.01+1*close01;
+      const evadeHeading=Math.sin(simT*evadeFreq)*evadeAmp;
+  const tgtHeading=terminal?(Math.PI/2+evadeHeading):lerpHeading(simT);
+  currentTgtHeading=tgtHeading;
+  targetGoingUp=terminal;
+      const tgtSpd=terminal?(baseUpSpeed*1.18):190;
+      tgtX+=-Math.cos(tgtHeading)*tgtSpd/60;
+      tgtY+=-Math.sin(tgtHeading)*tgtSpd/60;
+
+      // Interceptor: slow upward launch, then transition to pursuit and accelerate
+      if(dd>0.5){
+  const px=ddx/dd, py=ddy/dd;
+  const steerBlend=Math.min(1,Math.max(0,(simT-0.8)/1.8));
+  const lateralGate=targetGoingUp?1:0;
+  let fx=px*steerBlend*lateralGate, fy=-1*(1-steerBlend)+py*steerBlend;
+        const fl=Math.sqrt(fx*fx+fy*fy);
+        if(fl>0.01){
+          const launchRamp=Math.min(1,simT/2.2);
+          const closeBoost=terminal?(1+0.55*close01):1;
+          const intSpd=(50+95*launchRamp)*closeBoost;
+          intX+=(fx/fl)*intSpd/60;
+          intY+=(fy/fl)*intSpd/60;
+        }
+      }
+
+      if(dd<14){collided=true;colTime=simT;spawnExplosion((tgtX+intX)/2,(tgtY+intY)/2);}
+    }
+
+    const dx=tgtX-intX,dy=tgtY-intY,dist=Math.sqrt(dx*dx+dy*dy);
+    const sb=Math.min(1,Math.max(0,(simT-1)/1.5));
+    let hNX=(dist>0.1?dx/dist:0)*sb,hNY=-1*(1-sb)+(dist>0.1?dy/dist:-1)*sb;
+    const hL=Math.sqrt(hNX*hNX+hNY*hNY);if(hL>0.01){hNX/=hL;hNY/=hL;}
+    const headRad=Math.atan2(hNX,-hNY);
+
+    // Pixel bar
+    const barDist=50,barLen=W*0.38,numPix=22,pixW=barLen/numPix,pixH=11;
+    const bCX=intX+hNX*barDist,bCY=intY+hNY*barDist;
+    const bDX=-hNY,bDY=hNX;
+    const fe=1.5,fLX=intX+(bCX-barLen/2*bDX-intX)*fe,fLY=intY+(bCY-barLen/2*bDY-intY)*fe;
+    const fRX=intX+(bCX+barLen/2*bDX-intX)*fe,fRY=intY+(bCY+barLen/2*bDY-intY)*fe;
+
+    if(!collided){
+      // FOV cone
+      ctx.strokeStyle='rgba(62,207,142,0.07)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(fLX,fLY);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(fRX,fRY);ctx.stroke();
+      ctx.fillStyle='rgba(62,207,142,0.01)';ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(fLX,fLY);ctx.lineTo(fRX,fRY);ctx.closePath();ctx.fill();
+      ctx.strokeStyle='rgba(62,207,142,0.04)';ctx.setLineDash([4,6]);
+      ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(intX+hNX*barDist*fe,intY+hNY*barDist*fe);ctx.stroke();ctx.setLineDash([]);
+
+      // Pixel strip
+      const toTX=tgtX-bCX,toTY=tgtY-bCY;
+      const proj=toTX*bDX+toTY*bDY;
+      const tgtPixIdx=Math.floor((proj+barLen/2)/pixW);
+      const litHalf=dist<W*0.3?1:0;
+      const barAngle=Math.atan2(bDY,bDX);
+      ctx.save();ctx.translate(bCX,bCY);ctx.rotate(barAngle);
+      for(let i=0;i<numPix;i++){
+        const px=-barLen/2+i*pixW,isLit=Math.abs(i-tgtPixIdx)<=litHalf,isCenter=i===Math.floor(numPix/2);
+        let fill='rgba(20,25,35,0.9)',stroke='rgba(62,207,142,0.1)';
+        if(isLit){const br=Math.max(0.3,1-Math.abs(px+pixW/2-proj)/(pixW*1.5));fill='rgba(232,69,69,'+(br*0.85)+')';stroke='rgba(232,69,69,'+(br*0.35)+')';}
+        else if(isCenter){stroke='rgba(62,207,142,0.2)';}
+        ctx.fillStyle=fill;ctx.strokeStyle=stroke;ctx.lineWidth=1;
+        ctx.beginPath();ctx.rect(px,-pixH/2,pixW-1,pixH);ctx.fill();ctx.stroke();
+      }
+      ctx.strokeStyle='rgba(62,207,142,0.3)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(0,-pixH/2-4);ctx.lineTo(0,-pixH/2-1);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(0,pixH/2+1);ctx.lineTo(0,pixH/2+4);ctx.stroke();
+      ctx.restore();
+
+      // Drop line to pixel strip
+      const ppX=bCX+bDX*proj,ppY=bCY+bDY*proj;
+      ctx.strokeStyle='rgba(232,69,69,0.07)';ctx.lineWidth=1;ctx.setLineDash([3,5]);
+      ctx.beginPath();ctx.moveTo(tgtX,tgtY);ctx.lineTo(ppX,ppY);ctx.stroke();ctx.setLineDash([]);
+
+      // Target
+      const tR=5+Math.max(0,1-dist/(W*0.5))*10;
+      ctx.beginPath();ctx.arc(tgtX,tgtY,tR+4,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.05)';ctx.fill();
+      ctx.beginPath();ctx.arc(tgtX,tgtY,tR,0,Math.PI*2);ctx.strokeStyle='#e84545';ctx.lineWidth=1.5;ctx.stroke();
+      ctx.beginPath();ctx.arc(tgtX,tgtY,Math.max(2,tR*0.3),0,Math.PI*2);ctx.fillStyle='#e84545';ctx.fill();
+  const tvx=-Math.cos(currentTgtHeading),tvy=-Math.sin(currentTgtHeading);
+      ctx.strokeStyle='rgba(232,69,69,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(tgtX+tvx*(tR+5),tgtY+tvy*(tR+5));ctx.lineTo(tgtX+tvx*(tR+25),tgtY+tvy*(tR+25));ctx.stroke();
+      const ax=tgtX+tvx*(tR+25),ay=tgtY+tvy*(tR+25);
+      ctx.fillStyle='rgba(232,69,69,0.5)';ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(ax-tvx*5-tvy*3,ay-tvy*5+tvx*3);ctx.lineTo(ax-tvx*5+tvy*3,ay-tvy*5-tvx*3);ctx.fill();
+      ctx.font='9px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.5)';ctx.textAlign='left';ctx.fillText('pixels/s',ax+5,ay+3);
+      ctx.fillStyle='rgba(232,69,69,0.5)';ctx.textAlign='center';ctx.fillText('target',tgtX,tgtY-tR-8);ctx.textAlign='left';
+
+      // Interceptor
+      ctx.save();ctx.translate(intX,intY);ctx.rotate(headRad);
+      const bw=28,bh=12;
+      ctx.fillStyle='rgba(74,158,255,0.15)';ctx.strokeStyle='rgba(74,158,255,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.roundRect(-bw/2,-bh/2,bw,bh,3);ctx.fill();ctx.stroke();
+      ctx.strokeStyle='rgba(74,158,255,0.35)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(-bw/2,0);ctx.lineTo(-bw/2-9,-3);ctx.moveTo(bw/2,0);ctx.lineTo(bw/2+9,-3);ctx.stroke();
+      const pw2=7*Math.sin(simT*18);ctx.strokeStyle='rgba(74,158,255,0.3)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(-bw/2-9-pw2,-4);ctx.lineTo(-bw/2-9+pw2,-4);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(bw/2+9-pw2,-4);ctx.lineTo(bw/2+9+pw2,-4);ctx.stroke();
+      ctx.strokeStyle='rgba(74,158,255,0.2)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(0,-bh/2-3);ctx.lineTo(0,-bh/2-18);ctx.stroke();
+      ctx.fillStyle='rgba(74,158,255,0.2)';ctx.beginPath();ctx.moveTo(0,-bh/2-18);ctx.lineTo(-3,-bh/2-13);ctx.lineTo(3,-bh/2-13);ctx.fill();
+      ctx.fillStyle='rgba(62,207,142,0.5)';ctx.fillRect(-3,-bh/2-2,6,2);
+      ctx.restore();
+      ctx.font='9px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.4)';ctx.textAlign='center';ctx.fillText('interceptor',intX,intY+20);ctx.textAlign='left';
+    }
+
+    drawExplosion();
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>

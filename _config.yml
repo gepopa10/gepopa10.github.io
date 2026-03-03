@@ -1,6 +1,92 @@
+theme: jekyll-theme-chirpy
+
+lang: en
+timezone: America/Montreal
+
 title: George Popescu
-logo: headshot_circle.png
-description: Robotics Software Developer | C++
-# show_downloads: true
-theme: jekyll-theme-minimal
-favicon: favicon.ico
+tagline: Robotics Software Developer & Technical Blogger
+description: >-
+  A technical blog about software engineering, robotics, and development tools.
+
+url: "https://gepopa10.github.io"
+baseurl: ""
+
+github:
+  username: gepopa10
+
+author:
+  name: George Popescu
+
+social:
+  name: George Popescu
+  links:
+    - https://www.linkedin.com/in/george-popescu-75aaabba/
+    - https://github.com/gepopa10
+
+avatar: "/headshot_circle.png"
+
+theme_mode: dark
+
+collections:
+  tabs:
+    output: true
+    sort_by: order
+
+defaults:
+  - scope:
+      path: ""
+      type: tabs
+    values:
+      layout: page
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+      comments: true
+      toc: true
+      math: false
+      mermaid: false
+
+paginate: 10
+
+compress_html:
+  clipping: all
+  comments: all
+  endings: all
+  profile: false
+  blanklines: false
+  ignore:
+    envs: [development]
+
+exclude:
+  - "*.gem"
+  - "*.gemspec"
+  - README.md
+  - LICENSE
+  - vendor
+  - .bundle
+
+comments:
+  provider: giscus
+  giscus:
+    repo: gepopa10/gepopa10.github.io
+    repo_id: R_kgDOMRdxnA
+    category: General
+    category_id: DIC_kwDOMRdxnM4C3e71
+    mapping: pathname
+    strict: 0
+    input_position: bottom
+    lang: en
+    reactions_enabled: 1
+
+jekyll-archives:
+  enabled:
+    - categories
+    - tags
+  layouts:
+    category: category
+    tag: tag
+  permalinks:
+    tag: /tags/:name/
+    category: /categories/:name/

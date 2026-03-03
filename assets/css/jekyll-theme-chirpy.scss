@@ -1,0 +1,52 @@
+---
+---
+
+@import 'main
+{%- if jekyll.environment == 'production' -%}
+  .bundle
+{%- endif -%}
+';
+
+/* Custom overrides — loaded after all Chirpy styles */
+
+@import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
+
+/* Apply Inconsolata only to post body text */
+.content {
+  font-family: 'Inconsolata', monospace;
+  font-size: 22.5px;
+  line-height: 1.5;
+}
+
+/* Headings inside post keep proportional sizing, not 22.5px */
+.content h1,
+.content h2,
+.content h3,
+.content h4,
+.content h5,
+.content h6 {
+  font-family: 'Inconsolata', monospace;
+}
+
+html[data-mode='dark'] body,
+body {
+  background-color: #212529;
+  color: #ffffff;
+}
+
+html[data-mode='dark'] {
+  --main-bg: #212529;
+  --sidebar-bg: #1a1d20;
+  --topbar-bg: rgba(33, 37, 41, 0.85);
+  --card-bg: #2a2e32;
+  --card-header-bg: #2a2e32;
+  --text-color: #ffffff;
+  --heading-color: #ffffff;
+  --post-list-text-color: #ffffff;
+  --site-title-color: #ffffff;
+  --site-subtitle-color: #cccccc;
+  --sidebar-active-color: #ffffff;
+  --sidebar-muted-color: #cccccc;
+  --tb-odd-bg: #2a2e32;
+  --tb-even-bg: #212529;
+}
