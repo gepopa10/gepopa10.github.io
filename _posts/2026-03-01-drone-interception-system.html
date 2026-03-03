@@ -306,7 +306,7 @@ canvas { width: 100%; height: 100%; display: block; }
 
 <!-- ══════════════════════════════════════════ SCRIPTS -->
 <script>
-// ── Latency / Perception Gap ──────────────────────────────────────────────
+/* ── Latency / Perception Gap ────────────────────────────────────────────── */
 (function() {
   const canvas = document.getElementById('simCanvas');
   const ctx = canvas.getContext('2d');
@@ -315,7 +315,7 @@ canvas { width: 100%; height: 100%; display: block; }
   const valSpeed      = document.getElementById('valSpeed');
   const valLatency    = document.getElementById('valLatency');
   const eqResult      = document.getElementById('eqResult');
-  // const gapEl         = document.getElementById('simGap');
+  /* const gapEl         = document.getElementById('simGap'); */
 
   function updateEq() {
     const g = parseFloat(sliderSpeed.value) * parseFloat(sliderLatency.value) / 1000;
@@ -343,8 +343,8 @@ canvas { width: 100%; height: 100%; display: block; }
     ctx.clearRect(0,0,W,H);
     const speed = parseFloat(sliderSpeed.value), latMs = parseFloat(sliderLatency.value);
     const gapM = speed * latMs / 1000;
-    // gapEl.textContent = 'Gap: ' + gapM.toFixed(1) + ' m';
-    // gapEl.style.color = gapM > 5 ? '#e84545' : gapM > 2 ? '#f0c040' : '#3ecf8e';
+    /* gapEl.textContent = 'Gap: ' + gapM.toFixed(1) + ' m'; */
+    /* gapEl.style.color = gapM > 5 ? '#e84545' : gapM > 2 ? '#f0c040' : '#3ecf8e'; */
 
     const dt = 1/60; t += dt;
     const groundY = H*0.62, skyY = H*0.22;
@@ -358,14 +358,14 @@ canvas { width: 100%; height: 100%; display: block; }
     const actualX = W*0.85 - rawX, actualY = skyY;
     const percX = actualX + gapPx, percY = skyY;
 
-    // Ground
+    /* Ground */
     ctx.fillStyle='#111318'; ctx.fillRect(0,groundY,W,H-groundY);
     ctx.strokeStyle='#252a35'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
     ctx.strokeStyle='rgba(42,48,64,0.4)'; ctx.lineWidth=0.7;
     for(let i=0;i<W+40;i+=10){ctx.beginPath();ctx.moveTo(i,groundY);ctx.lineTo(i-14,groundY+14);ctx.stroke();}
 
-    // Radar
+    /* Radar */
     const rW=20,rH=28;
     ctx.fillStyle='#1e2230'; ctx.strokeStyle='#3a4258'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.roundRect(radarX-rW/2,radarY-rH,rW,rH,3); ctx.fill(); ctx.stroke();
@@ -376,7 +376,7 @@ canvas { width: 100%; height: 100%; display: block; }
     ctx.font='10px "Space Mono",monospace'; ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.textAlign='center';
     ctx.fillText('RADAR',radarX,radarY+16);
 
-    // Interceptor
+    /* Interceptor */
     const iW=32,iH=14;
     ctx.fillStyle='rgba(74,158,255,0.15)'; ctx.strokeStyle='rgba(74,158,255,0.5)'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.roundRect(intBaseX-iW/2,intBaseY-iH-2,iW,iH,3); ctx.fill(); ctx.stroke();
@@ -386,7 +386,7 @@ canvas { width: 100%; height: 100%; display: block; }
     ctx.font='10px "Space Mono",monospace'; ctx.fillStyle='rgba(74,158,255,0.6)'; ctx.textAlign='center';
     ctx.fillText('INTERCEPTOR',intBaseX,intBaseY+16);
 
-    // Packets
+    /* Packets */
     if(t-lastPkt>0.5){ lastPkt=t; packets.push({born:t,progress:0}); }
     const radarTop={x:radarX,y:radarY-rH-20};
     const percVisible=percX>0&&percX<W;
@@ -402,7 +402,7 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,'+op+')';ctx.fill();
       ctx.beginPath();ctx.arc(px,py,7,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,'+(op*0.15)+')';ctx.fill();
     }
-    // Dashed data lines
+    /* Dashed data lines */
     if(percVisible){
       ctx.strokeStyle='rgba(240,192,64,0.15)';ctx.lineWidth=1;ctx.setLineDash([4,6]);
       ctx.beginPath();ctx.moveTo(radarTop.x,radarTop.y);ctx.lineTo(percX,percY);ctx.stroke();ctx.setLineDash([]);
@@ -423,13 +423,13 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.fillText(gapM.toFixed(1)+' m',(actualX+percX)/2,aY-10);ctx.textAlign='left';
     }
 
-    // Perceived dot
+    /* Perceived dot */
     if(percX>-20&&percX<W+20){
       ctx.beginPath();ctx.arc(percX,percY,14,0,Math.PI*2);ctx.strokeStyle='rgba(74,158,255,0.25)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.stroke();ctx.setLineDash([]);
       ctx.beginPath();ctx.arc(percX,percY,5,0,Math.PI*2);ctx.fillStyle='rgba(74,158,255,0.4)';ctx.fill();
       ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.55)';ctx.textAlign='center';ctx.fillText('perceived',percX,percY+26);ctx.textAlign='left';
     }
-    // Actual dot
+    /* Actual dot */
     if(actualX>-20&&actualX<W+20){
       ctx.beginPath();ctx.arc(actualX,actualY,14,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.1)';ctx.fill();
       ctx.strokeStyle='#e84545';ctx.lineWidth=2;ctx.stroke();
@@ -446,7 +446,7 @@ canvas { width: 100%; height: 100%; display: block; }
 </script>
 
 <script>
-// ── Collision Triangle ────────────────────────────────────────────────────
+/* ── Collision Triangle ──────────────────────────────────────────────────── */
 (function() {
   const canvas = document.getElementById('triCanvas');
   const ctx = canvas.getContext('2d');
@@ -531,25 +531,25 @@ canvas { width: 100%; height: 100%; display: block; }
     const collided=canInt&&animT>=tCol;
     if(collided&&(t-explosionTime)>animDur*0.8) spawnExplosion(cX,cY);
 
-    // Ground
+    /* Ground */
     ctx.fillStyle='#111318';ctx.fillRect(0,groundY,W,H-groundY);
     ctx.strokeStyle='#252a35';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(W,groundY);ctx.stroke();
     ctx.strokeStyle='rgba(42,48,64,0.4)';ctx.lineWidth=0.7;
     for(let i=0;i<W+40;i+=10){ctx.beginPath();ctx.moveTo(i,groundY);ctx.lineTo(i-14,groundY+14);ctx.stroke();}
 
-    // Paths
+    /* Paths */
     ctx.strokeStyle=!canInt?'rgba(232,69,69,0.15)':'rgba(232,69,69,0.1)';ctx.lineWidth=1;ctx.setLineDash([5,6]);
     ctx.beginPath();ctx.moveTo(tgtEntryX+40,tgtEntryY-40*(ndy/ndx));
     ctx.lineTo(tgtEntryX+ndx*tgtScr*animDur,tgtEntryY+ndy*tgtScr*animDur);ctx.stroke();
     ctx.strokeStyle='rgba(74,158,255,0.1)';ctx.beginPath();ctx.moveTo(intBaseX,intBaseY);ctx.lineTo(cX,cY);ctx.stroke();ctx.setLineDash([]);
 
-    // Triangle fill
+    /* Triangle fill */
     const sGnd=Math.abs(ndy)>0.001?(groundY-tgtEntryY)/ndy:9999;
     ctx.fillStyle=!canInt?'rgba(232,69,69,0.01)':'rgba(255,255,255,0.015)';
     ctx.strokeStyle=!canInt?'rgba(232,69,69,0.06)':'rgba(255,255,255,0.06)';ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(intBaseX,intBaseY);ctx.lineTo(cX,cY);ctx.lineTo(Math.min(tgtEntryX+sGnd*ndx,W*0.95),intBaseY);ctx.closePath();ctx.fill();ctx.stroke();
 
-    // Collision/miss marker
+    /* Collision/miss marker */
     if(canInt){
       const pulse=0.5+0.5*Math.sin(t*3);
       ctx.beginPath();ctx.arc(cX,cY,6+pulse*3,0,Math.PI*2);ctx.fillStyle='rgba(62,207,142,'+(0.05+pulse*0.03)+')';ctx.fill();
@@ -562,7 +562,7 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.5)';ctx.textAlign='center';ctx.fillText('miss',cX,cY-12);ctx.textAlign='left';
     }
 
-    // Target
+    /* Target */
     if((!collided)&&tgtX>-30&&tgtX<W+30&&tgtY>-30&&tgtY<H+30){
       ctx.beginPath();ctx.arc(tgtX,tgtY,12,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.07)';ctx.fill();
       ctx.strokeStyle='#e84545';ctx.lineWidth=2;ctx.stroke();
@@ -574,7 +574,7 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.65)';ctx.textAlign='center';ctx.fillText('target',tgtX,tgtY-18);ctx.textAlign='left';
     }
 
-    // Interceptor
+    /* Interceptor */
     if(!collided&&iTrav<iDist+1){
       ctx.save();ctx.translate(iX,iY);ctx.rotate(intAngle);
       const bw=24,bh=10;
@@ -592,7 +592,7 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.55)';ctx.textAlign='center';ctx.fillText('interceptor',iX,iY+20);ctx.textAlign='left';
     }
 
-    // Tilt angle arc
+    /* Tilt angle arc */
     const arcR=32;
     ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
     ctx.beginPath();ctx.moveTo(intBaseX,intBaseY);ctx.lineTo(intBaseX,intBaseY-50);ctx.stroke();ctx.setLineDash([]);
@@ -619,7 +619,7 @@ canvas { width: 100%; height: 100%; display: block; }
 </script>
 
 <script>
-// ── Event Camera Terminal Homing ──────────────────────────────────────────
+/* ── Event Camera Terminal Homing ────────────────────────────────────────── */
 (function() {
   const canvas = document.getElementById('evtCanvas');
   const ctx = canvas.getContext('2d');
@@ -672,10 +672,10 @@ canvas { width: 100%; height: 100%; display: block; }
       const ddx=tgtX-intX, ddy=tgtY-intY;
       const dd=Math.sqrt(ddx*ddx+ddy*ddy);
 
-      // Terminal phase when close enough for evasive maneuvers
+      /* Terminal phase when close enough for evasive maneuvers */
   const terminal=dd<120;
 
-      // Target: keep moving upward, but weave left-right when close
+      /* Target: keep moving upward, but weave left-right when close */
       const close01=Math.min(1,Math.max(0,(195-dd)/90));
       const baseUpSpeed=108;
       const evadeAmp=0.32+0.42*close01;
@@ -688,7 +688,7 @@ canvas { width: 100%; height: 100%; display: block; }
       tgtX+=-Math.cos(tgtHeading)*tgtSpd/60;
       tgtY+=-Math.sin(tgtHeading)*tgtSpd/60;
 
-      // Interceptor: slow upward launch, then transition to pursuit and accelerate
+      /* Interceptor: slow upward launch, then transition to pursuit and accelerate */
       if(dd>0.5){
   const px=ddx/dd, py=ddy/dd;
   const steerBlend=Math.min(1,Math.max(0,(simT-0.8)/1.8));
@@ -713,7 +713,7 @@ canvas { width: 100%; height: 100%; display: block; }
     const hL=Math.sqrt(hNX*hNX+hNY*hNY);if(hL>0.01){hNX/=hL;hNY/=hL;}
     const headRad=Math.atan2(hNX,-hNY);
 
-    // Pixel bar
+    /* Pixel bar */
     const barDist=50,barLen=W*0.38,numPix=22,pixW=barLen/numPix,pixH=11;
     const bCX=intX+hNX*barDist,bCY=intY+hNY*barDist;
     const bDX=-hNY,bDY=hNX;
@@ -721,7 +721,7 @@ canvas { width: 100%; height: 100%; display: block; }
     const fRX=intX+(bCX+barLen/2*bDX-intX)*fe,fRY=intY+(bCY+barLen/2*bDY-intY)*fe;
 
     if(!collided){
-      // FOV cone
+      /* FOV cone */
       ctx.strokeStyle='rgba(62,207,142,0.07)';ctx.lineWidth=1;
       ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(fLX,fLY);ctx.stroke();
       ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(fRX,fRY);ctx.stroke();
@@ -729,7 +729,7 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.strokeStyle='rgba(62,207,142,0.04)';ctx.setLineDash([4,6]);
       ctx.beginPath();ctx.moveTo(intX,intY);ctx.lineTo(intX+hNX*barDist*fe,intY+hNY*barDist*fe);ctx.stroke();ctx.setLineDash([]);
 
-      // Pixel strip
+      /* Pixel strip */
       const toTX=tgtX-bCX,toTY=tgtY-bCY;
       const proj=toTX*bDX+toTY*bDY;
       const tgtPixIdx=Math.floor((proj+barLen/2)/pixW);
@@ -749,12 +749,12 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.beginPath();ctx.moveTo(0,pixH/2+1);ctx.lineTo(0,pixH/2+4);ctx.stroke();
       ctx.restore();
 
-      // Drop line to pixel strip
+      /* Drop line to pixel strip */
       const ppX=bCX+bDX*proj,ppY=bCY+bDY*proj;
       ctx.strokeStyle='rgba(232,69,69,0.07)';ctx.lineWidth=1;ctx.setLineDash([3,5]);
       ctx.beginPath();ctx.moveTo(tgtX,tgtY);ctx.lineTo(ppX,ppY);ctx.stroke();ctx.setLineDash([]);
 
-      // Target
+      /* Target */
       const tR=5+Math.max(0,1-dist/(W*0.5))*10;
       ctx.beginPath();ctx.arc(tgtX,tgtY,tR+4,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.05)';ctx.fill();
       ctx.beginPath();ctx.arc(tgtX,tgtY,tR,0,Math.PI*2);ctx.strokeStyle='#e84545';ctx.lineWidth=1.5;ctx.stroke();
@@ -767,7 +767,7 @@ canvas { width: 100%; height: 100%; display: block; }
       ctx.font='9px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.5)';ctx.textAlign='left';ctx.fillText('pixels/s',ax+5,ay+3);
       ctx.fillStyle='rgba(232,69,69,0.5)';ctx.textAlign='center';ctx.fillText('target',tgtX,tgtY-tR-8);ctx.textAlign='left';
 
-      // Interceptor
+      /* Interceptor */
       ctx.save();ctx.translate(intX,intY);ctx.rotate(headRad);
       const bw=28,bh=12;
       ctx.fillStyle='rgba(74,158,255,0.15)';ctx.strokeStyle='rgba(74,158,255,0.5)';ctx.lineWidth=1.5;
