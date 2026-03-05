@@ -14,8 +14,27 @@
 /* Apply Inconsolata only to post body text */
 .content {
   font-family: 'Inconsolata', monospace;
-  font-size: 22.5px;
+  font-size: 21px;
   line-height: 1.5;
+}
+
+/* Override Bootstrap container max-width to use full available width */
+#main-wrapper > .container {
+  max-width: 75% !important;
+}
+
+/* Change content/panel split from 9/3 to 10/2 */
+@media (min-width: 1200px) {
+  main[aria-label="Main Content"],
+  #tail-wrapper {
+    flex: 0 0 auto;
+    width: 83.33333% !important;
+  }
+
+  #panel-wrapper {
+    flex: 0 0 auto;
+    width: 16.66667% !important;
+  }
 }
 
 /* Headings inside post keep proportional sizing, not 22.5px */
