@@ -1,0 +1,850 @@
+---
+title: "Simple Path Collision Checking in 2D"
+date: 2026-03-07 10:00:00 +0000
+categories: [Robotics, Path Planning]
+tags: [robotics, path-planning, collision-detection, computational-geometry]
+image:
+  path: /path_collision_preview.gif
+  alt: "Convex polygon point-in-polygon test"
+---
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+.dp {
+  --accent: #e84545;
+  --accent-glow: rgba(232, 69, 69, 0.15);
+  --blue: #4a9eff;
+  --blue-dim: rgba(74, 158, 255, 0.12);
+  --green: #3ecf8e;
+  --green-dim: rgba(62, 207, 142, 0.12);
+  --yellow: #f0c040;
+  --surface: #1a1e26;
+  --border: #2a3040;
+  --text-dim: #7a8499;
+}
+
+.dp p { margin-bottom: 24px; }
+.dp strong { color: #fff; }
+
+.dp .callout {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  padding: 22px 26px;
+  margin: 36px 0;
+  border-radius: 0 8px 8px 0;
+  font-size: 16px;
+}
+.dp .callout p { margin-bottom: 0; color: var(--text-dim); }
+.dp .callout strong { color: var(--accent); }
+.dp .callout.green { border-left-color: var(--green); }
+.dp .callout.green strong { color: var(--green); }
+
+.sim-wrap {
+  background: #0e1118;
+  border: 1px solid #2a3040;
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 48px 0;
+}
+.sim-eq {
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a3040;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sim-controls { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+.sim-control  { display: flex; align-items: center; gap: 8px; }
+.sim-control label { font-family: 'Space Mono', monospace; font-size: 11px; color: #7a8499; white-space: nowrap; }
+.sim-control input[type="range"] { width: 90px; accent-color: #e84545; cursor: pointer; }
+.sim-control .val { font-family: 'Space Mono', monospace; font-size: 11px; color: #4a9eff; min-width: 42px; text-align: right; }
+.sim-canvas-wrap { position: relative; width: 100%; aspect-ratio: 16/9; background: #0a0c10; }
+.sim-canvas-wrap.sq { aspect-ratio: 4/3; }
+canvas { width: 100%; height: 100%; display: block; cursor: default; }
+canvas.grab { cursor: grab; }
+canvas.grab:active { cursor: grabbing; }
+
+.sim-ftr {
+  padding: 12px 20px;
+  border-top: 1px solid #2a3040;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sim-status { font-family: 'Space Mono', monospace; font-size: 11px; color: #7a8499; }
+
+.post-note {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid #2a3040;
+  font-size: 14px;
+  color: #7a8499;
+  line-height: 1.7;
+}
+</style>
+
+<div class="dp">
+<p>You've planned a path that goes from A to B.</p>
+<p>Maybe it's direct. Maybe it's limited by the maximum steering angle of your robot and is thus curved.</p>
+<p>But how can you check if it's <strong>collision free</strong>?</p>
+<p>For that, knowledge of the environment in which the robot moves is necessary.</p>
+<p>From sensors, a map of the environment in which the robot is operating can be built.</p>
+<p>In 2D, objects within the environment could be represented by boxes or to encapsulate more details: <strong>polygons</strong>.</p>
+<p>Polygons are simple enough for computational efficiency and complex enough to represent various shapes.</p>
+<p>So let's recap. You have a <strong>path</strong> and <strong>polygons</strong> that represent obstacles.</p>
+<p>How can you check if the path collides with obstacles within the map?</p>
+<p>There are two possible approaches: <strong>analytical</strong> versus <strong>discrete</strong>.</p>
+<p>For the analytical solution, a simple strategy for convex polygons would be to use the equation of the path and each segment of the polygon represented as a line to check for intersections.</p>
+<p>For the discrete solution, the strategy is to <strong>discretize the path</strong> for a given number of points and test if any of the points belongs to the polygon.</p>
+<p>Let's take a simple example: if the path is a line like <strong style="font-style:italic;">y = 3x + 2</strong> with <strong>x<sub>start</sub> = 1</strong> and <strong>x<sub>end</sub> = 3</strong>, you can sample the path from start to finish for N points. At <strong>x<sub>0</sub> = 1</strong> you would compute <strong>y<sub>0</sub></strong>, at <strong>x<sub>1</sub> = 1.02</strong> you get <strong>y<sub>1</sub> = 5.06</strong>, etc…</p>
+<p>You will end up with N 2D points that are uniformly spaced in x along the path from start to finish.</p>
+</div>
+
+<!-- ══════════════════ 1. PATH SAMPLING (Quarter Circle) ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-eq">
+    <div class="sim-controls">
+      <div class="sim-control">
+        <label>Points (N)</label>
+        <input type="range" id="sliderSampleN" min="3" max="100" value="10" step="1">
+        <span class="val" id="valSampleN">10</span>
+      </div>
+    </div>
+  </div>
+  <div class="sim-canvas-wrap"><canvas id="sampleCanvas"></canvas></div>
+  <div class="sim-ftr"><span class="sim-status" id="sampleStatus">N = 10</span></div>
+</div>
+
+<div class="dp">
+<p>Next, collision tests can be made for each of these points that represent the path with obstacles.</p>
+<p>The problem morphs into assessing if a <strong>point is inside a polygon</strong>.</p>
+<p>Let's assume the polygon is convex.</p>
+<p>Given a line of the polygon (A→B) and a point (C), two vectors can be built: <strong>AB</strong> and <strong>AC</strong>.</p>
+<p>The point C is inside the polygon when it's on the same side of every polygon edge.</p>
+
+<p>This can be computed with the <strong>cross product</strong> of the two vectors.</p>
+
+<p>In a standard right-hand coordinate system (x right, y up): positive means left side, negative means right side.</p>
+
+<p>For a clockwise polygon, the point must be on the right side (negative) of every edge.</p>
+<p>Drag the point below to see which side of the segment it falls on.</p>
+</div>
+
+<!-- ══════════════════ 2. CROSS PRODUCT (Hexagon edge, ✕/○) ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-canvas-wrap sq"><canvas id="crossCanvas" class="grab"></canvas></div>
+</div>
+
+<div class="dp">
+<p>When traveling clockwise along the segments of the convex polygon, if all cross products share the <strong>same sign</strong>, the point is inside.</p>
+
+<p>If any cross product has a different sign, the point is outside.</p>
+<p>If even one edge test returns left side, the point is outside.</p>
+<p>Drag the point below around the pentagon to see the test in action. The animation restarts each time you move it.</p>
+</div>
+
+<!-- ══════════════════ 3. CONVEX POLYGON (edge-by-edge, restart on drag) ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-canvas-wrap sq"><canvas id="polyCanvas" class="grab"></canvas></div>
+  <div class="sim-ftr"><span class="sim-status" id="polyStatus">testing edges...</span></div>
+</div>
+
+<div class="dp">
+<p>Another technique that is generalizable to <strong>concave polygons</strong> is ray-casting.</p>
+<p>The idea is to cast a ray from the point and count how many polygon segments it crosses.</p>
+<p>If the ray crosses an <strong>odd</strong> number of segments, the point is inside the polygon.</p>
+<p>If the ray crosses an <strong>even</strong> number, it went in and out, and the point is outside.</p>
+<p>Drag the point below to see ray-casting in action on a concave polygon.</p>
+</div>
+
+<!-- ══════════════════ 4. RAY CASTING ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-canvas-wrap sq"><canvas id="rayCanvas" class="grab"></canvas></div>
+  <div class="sim-ftr"><span class="sim-status" id="rayStatus">intersections: 0 → outside</span></div>
+</div>
+
+<div class="dp">
+<p>Now going back to the main problem, knowing if a discretized path collides with a polygon involves doing the above tests repeatedly for each point along the path.</p>
+<div class="callout green">
+  <p><strong>Bonus:</strong> If a multi-core computer is used, it's possible to parallelize the computation by delegating a subset of the points to each core.</p>
+</div>
+<p>Below you can choose the number of cores. The 100 sample points are divided among them and processed simultaneously. Watch how more cores speed up the check.</p>
+</div>
+
+<!-- ══════════════════ 5. PARALLEL CHECK ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-eq">
+    <div class="sim-controls">
+      <div class="sim-control">
+        <label>Cores</label>
+        <input type="range" id="sliderCores" min="1" max="4" value="1" step="1">
+        <span class="val" id="valCores">1</span>
+      </div>
+    </div>
+  </div>
+  <div class="sim-canvas-wrap"><canvas id="parallelCanvas"></canvas></div>
+  <div class="sim-ftr"><span class="sim-status" id="parallelStatus">checking...</span></div>
+</div>
+
+<div class="dp">
+<p>One caveat of the discretization approach is that if it's <strong>not dense enough</strong>, small obstacles might be missed!</p>
+<p>Try reducing the number of sample points below and see how the obstacle slips between them undetected.</p>
+</div>
+
+<!-- ══════════════════ 6. CAVEAT ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-eq">
+    <div class="sim-controls">
+      <div class="sim-control">
+        <label>Points</label>
+        <input type="range" id="sliderCaveatN" min="5" max="50" value="5" step="1">
+        <span class="val" id="valCaveatN">5</span>
+      </div>
+    </div>
+  </div>
+  <div class="sim-canvas-wrap"><canvas id="caveatCanvas"></canvas></div>
+  <div class="sim-ftr"><span class="sim-status" id="caveatStatus">no collision detected — obstacle missed!</span></div>
+</div>
+
+<div class="dp">
+<p>That's it. A simple geometrical collision checking technique for robotics.</p>
+<p>Discretize the path. Test each point against polygon obstacles. Parallelize if you can. And always check your sampling density.</p>
+</div>
+
+<!-- ══════════════════════════════════════════ SCRIPTS ══════════════════════════════════════════ -->
+
+<!-- 1. QUARTER CIRCLE PATH SAMPLING -->
+<script>
+(function(){
+  const canvas=document.getElementById('sampleCanvas'),ctx=canvas.getContext('2d');
+  const slider=document.getElementById('sliderSampleN'),valEl=document.getElementById('valSampleN'),statusEl=document.getElementById('sampleStatus');
+  let W,H,dpr;
+  function resize(){const r=canvas.parentElement.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();window.addEventListener('resize',resize);
+  slider.addEventListener('input',()=>{valEl.textContent=slider.value;});
+
+  let t=0;
+  /* y = 3x + 2, x from 1 to 3 */
+  const xStart=1, xEnd=3;
+  function f(x){return 3*x+2;}
+  const yStart=f(xStart), yEnd=f(xEnd);
+
+  function draw(){
+    ctx.clearRect(0,0,W,H); t+=1/60;
+    const N=parseInt(slider.value);
+    const pad=60,graphW=W-pad*2,graphH=H-pad*2;
+
+    /* Map data coords to screen */
+    const xMin=0, xMax=4, yMin=0, yMax=12;
+    function toSX(x){return pad+(x-xMin)/(xMax-xMin)*graphW;}
+    function toSY(y){return pad+graphH-(y-yMin)/(yMax-yMin)*graphH;}
+
+    /* Grid */
+    ctx.strokeStyle='rgba(42,48,64,0.3)';ctx.lineWidth=0.5;
+    for(let i=0;i<=8;i++){const x=pad+graphW*i/8;ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,pad+graphH);ctx.stroke();}
+    for(let i=0;i<=6;i++){const y=pad+graphH*i/6;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(pad+graphW,y);ctx.stroke();}
+
+    /* Axes */
+    ctx.strokeStyle='#2a3040';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(pad,pad+graphH);ctx.lineTo(pad+graphW,pad+graphH);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad,pad);ctx.lineTo(pad,pad+graphH);ctx.stroke();
+
+    /* Axis tick labels */
+    ctx.font='9px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.25)';ctx.textAlign='center';
+    for(let v=0;v<=4;v++){ctx.fillText(v,toSX(v),pad+graphH+14);}
+    ctx.textAlign='right';
+    for(let v=0;v<=12;v+=2){ctx.fillText(v,pad-8,toSY(v)+3);}
+
+    /* Line: y = 3x + 2 (full faint extension) */
+    ctx.strokeStyle='rgba(74,158,255,0.15)';ctx.lineWidth=1;ctx.setLineDash([4,5]);
+    ctx.beginPath();ctx.moveTo(toSX(xMin),toSY(f(xMin)));ctx.lineTo(toSX(xMax),toSY(f(xMax)));ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* Line: active segment x=1 to x=3 */
+    ctx.strokeStyle='rgba(74,158,255,0.6)';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(toSX(xStart),toSY(yStart));ctx.lineTo(toSX(xEnd),toSY(yEnd));ctx.stroke();
+
+    /* Equation label */
+    const midX=(xStart+xEnd)/2, midY=f(midX);
+    const lblX=toSX(midX)+30, lblY=toSY(midY)-16;
+    ctx.font='11px "Space Mono",monospace';ctx.fillStyle='rgba(74,158,255,0.55)';ctx.textAlign='left';
+    ctx.fillText('y = 3x + 2',lblX,lblY);
+
+    /* Animated sampling */
+    const animSpeed=0.6;
+    const showCount=Math.min(N,Math.floor((t*animSpeed*N)%(N+N*0.5)));
+    statusEl.textContent='N = '+N;
+
+    for(let i=0;i<N;i++){
+      const frac=i/(N-1);
+      const xVal=xStart+frac*(xEnd-xStart);
+      const yVal=f(xVal);
+      const sx=toSX(xVal), sy=toSY(yVal);
+      const visible=i<showCount;
+      if(visible){
+        /* Drop lines to axes */
+        ctx.strokeStyle='rgba(240,192,64,0.1)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+        ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(sx,toSY(0));ctx.stroke();
+        ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(toSX(0),sy);ctx.stroke();
+        ctx.setLineDash([]);
+        /* Dot */
+        ctx.beginPath();ctx.arc(sx,sy,5,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,0.9)';ctx.fill();
+        ctx.beginPath();ctx.arc(sx,sy,9,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,0.08)';ctx.fill();
+      } else {
+        ctx.beginPath();ctx.arc(sx,sy,3,0,Math.PI*2);ctx.fillStyle='rgba(240,192,64,0.15)';ctx.fill();
+      }
+    }
+
+    /* Start / End labels */
+    ctx.font='11px "Space Mono",monospace';ctx.fillStyle='#7a8499';ctx.textAlign='center';
+    ctx.fillText('A (1, 5)',toSX(xStart),toSY(yStart)+20);
+    ctx.fillText('B (3, 11)',toSX(xEnd),toSY(yEnd)-12);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<!-- 2. CROSS PRODUCT — HEXAGON EDGE, GRID + COORDS + LIVE EQUATION (y-up) -->
+<script>
+(function(){
+  var canvas=document.getElementById('crossCanvas'),ctx=canvas.getContext('2d');
+  var W,H,dpr;
+  function resize(){var r=canvas.parentElement.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();window.addEventListener('resize',resize);
+
+  var cX=0.5,cY=0.28,dragging=false;
+
+  canvas.addEventListener('mousedown',function(e){var r=canvas.getBoundingClientRect();if(Math.hypot(e.clientX-r.left-cX*W,e.clientY-r.top-cY*H)<30)dragging=true;});
+  canvas.addEventListener('mousemove',function(e){if(!dragging)return;var r=canvas.getBoundingClientRect();cX=Math.max(.05,Math.min(.95,(e.clientX-r.left)/W));cY=Math.max(.05,Math.min(.95,(e.clientY-r.top)/H));});
+  canvas.addEventListener('mouseup',function(){dragging=false;});
+  canvas.addEventListener('mouseleave',function(){dragging=false;});
+  canvas.addEventListener('touchstart',function(e){e.preventDefault();var r=canvas.getBoundingClientRect();var tc=e.touches[0];if(Math.hypot(tc.clientX-r.left-cX*W,tc.clientY-r.top-cY*H)<40)dragging=true;},{passive:false});
+  canvas.addEventListener('touchmove',function(e){e.preventDefault();if(!dragging)return;var r=canvas.getBoundingClientRect();var tc=e.touches[0];cX=Math.max(.05,Math.min(.95,(tc.clientX-r.left)/W));cY=Math.max(.05,Math.min(.95,(tc.clientY-r.top)/H));},{passive:false});
+  canvas.addEventListener('touchend',function(){dragging=false;});
+
+  var GRID_COLS=20,GRID_ROWS=15;
+
+  /* Convert screen pixel to grid coords (x right, y UP) */
+  function toGrid(sx,sy){
+    var gx=Math.round(sx/W*GRID_COLS*10)/10;
+    var gy=Math.round((1-sy/H)*GRID_ROWS*10)/10; /* flip y */
+    return [gx,gy];
+  }
+
+  function getHexVerts(){
+    var hcx=W*0.38,hcy=H*0.45,r=Math.min(W,H)*0.28;
+    var v=[];
+    for(var i=0;i<6;i++){var a=-Math.PI/2+(i/6)*Math.PI*2;v.push([hcx+Math.cos(a)*r,hcy+Math.sin(a)*r]);}
+    var s=0;for(var i2=0;i2<v.length;i2++){var j=(i2+1)%v.length;s+=(v[j][0]-v[i2][0])*(v[j][1]+v[i2][1]);}
+    if(s<0)v.reverse();
+    return v;
+  }
+
+  function drawArrow(x1,y1,x2,y2,color,lw){
+    var dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);if(len<1)return;
+    var ux=dx/len,uy=dy/len;
+    ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+    ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-ux*10-uy*4,y2-uy*10+ux*4);ctx.lineTo(x2-ux*10+uy*4,y2-uy*10-ux*4);ctx.fill();
+  }
+
+  var t=0;
+  function draw(){
+    ctx.clearRect(0,0,W,H);t+=1/60;
+
+    var cellW=W/GRID_COLS,cellH=H/GRID_ROWS;
+
+    /* Grid */
+    ctx.strokeStyle='rgba(42,48,64,0.4)';ctx.lineWidth=0.5;
+    for(var gx=0;gx<=GRID_COLS;gx++){var x=gx*cellW;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(var gy=0;gy<=GRID_ROWS;gy++){var y=gy*cellH;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+    /* Axes: origin bottom-left, x right, y up */
+    ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(0,H-1);ctx.lineTo(W,H-1);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(1,0);ctx.lineTo(1,H);ctx.stroke();
+
+    /* Axis tick labels */
+    ctx.font='8px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.2)';
+    ctx.textAlign='center';ctx.textBaseline='bottom';
+    for(var lx=2;lx<=GRID_COLS;lx+=2){ctx.fillText(lx,lx*cellW,H-4);}
+    ctx.textAlign='left';ctx.textBaseline='middle';
+    for(var ly=2;ly<=GRID_ROWS;ly+=2){
+      var screenY=H-ly*cellH;
+      ctx.fillText(ly,5,screenY);
+    }
+    ctx.textAlign='left';ctx.textBaseline='bottom';
+    ctx.fillText('0',5,H-4);
+    ctx.font='9px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.3)';
+    ctx.textAlign='right';ctx.textBaseline='bottom';
+    ctx.fillText('x',W-4,H-4);
+    ctx.textAlign='left';ctx.textBaseline='top';
+    ctx.fillText('y',5,4);
+    ctx.textBaseline='alphabetic';
+
+    var verts=getHexVerts();
+    var eI=1;
+    var ax=verts[eI][0],ay=verts[eI][1],bx=verts[(eI+1)%6][0],by=verts[(eI+1)%6][1];
+    var cx2=cX*W,cy2=cY*H;
+
+    var gA=toGrid(ax,ay),gB=toGrid(bx,by),gC=toGrid(cx2,cy2);
+
+    var gABx=+(gB[0]-gA[0]).toFixed(1),gABy=+(gB[1]-gA[1]).toFixed(1);
+    var gACx=+(gC[0]-gA[0]).toFixed(1),gACy=+(gC[1]-gA[1]).toFixed(1);
+    var gCross=+(gABx*gACy-gABy*gACx).toFixed(1);
+
+    var isLeft=gCross>0;
+    var isRight=gCross<0;
+    var isPositive=gCross>=0;
+
+    /* Hexagon (dim) */
+    ctx.fillStyle='rgba(255,255,255,0.03)';ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(verts[0][0],verts[0][1]);for(var vi=1;vi<6;vi++)ctx.lineTo(verts[vi][0],verts[vi][1]);ctx.closePath();ctx.fill();ctx.stroke();
+    for(var vi2=0;vi2<6;vi2++){if(vi2===eI||vi2===(eI+1)%6)continue;ctx.beginPath();ctx.arc(verts[vi2][0],verts[vi2][1],3,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.35)';ctx.fill();}
+
+    drawArrow(ax,ay,bx,by,'#4a9eff',2.5);
+    drawArrow(ax,ay,cx2,cy2,'#f0c040',2);
+
+    var sabx=bx-ax,saby=by-ay;
+    var abLen=Math.hypot(sabx,saby);var nex=-saby/abLen,ney=sabx/abLen;
+    ctx.font='bold 11px "Space Mono",monospace';ctx.textAlign='center';
+    ctx.fillStyle='#4a9eff';
+    ctx.fillText('A ('+gA[0]+','+gA[1]+')',ax+nex*24,ay+ney*24+4);
+    ctx.fillText('B ('+gB[0]+','+gB[1]+')',bx+nex*24,by+ney*24+4);
+
+    var pulse=0.5+0.5*Math.sin(t*3);
+    var cCol=isPositive?'#3ecf8e':'#e84545';
+    var cColDim=isPositive?'rgba(62,207,142,0.08)':'rgba(232,69,69,0.08)';
+    ctx.beginPath();ctx.arc(cx2,cy2,12+pulse*3,0,Math.PI*2);
+    ctx.fillStyle=cColDim;ctx.fill();
+
+    if(isPositive){
+      ctx.beginPath();ctx.arc(cx2,cy2,10,0,Math.PI*2);ctx.strokeStyle='#3ecf8e';ctx.lineWidth=2.5;ctx.stroke();
+    } else {
+      var ss=8;ctx.strokeStyle='#e84545';ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.moveTo(cx2-ss,cy2-ss);ctx.lineTo(cx2+ss,cy2+ss);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cx2+ss,cy2-ss);ctx.lineTo(cx2-ss,cy2+ss);ctx.stroke();
+    }
+    ctx.font='bold 11px "Space Mono",monospace';ctx.fillStyle=cCol;ctx.textAlign='center';
+    ctx.fillText('C ('+gC[0]+','+gC[1]+')',cx2,cy2-20);
+    if(!dragging){ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.55)';ctx.fillText('drag me',cx2,cy2+26);}
+
+    var eqX=W*0.68,eqY=H*0.25;
+    var lH=20;
+    ctx.textAlign='left';
+
+    ctx.font='bold 12px "Space Mono",monospace';ctx.fillStyle='#ffffff';
+    ctx.fillText('CROSS PRODUCT',eqX,eqY);
+
+    ctx.font='12px "Space Mono",monospace';
+    ctx.fillStyle='#4a9eff';
+    ctx.fillText('AB',eqX,eqY+lH*1.4);
+    ctx.fillStyle='rgba(255,255,255,0.8)';
+    ctx.fillText(' = ('+gABx+', '+gABy+')',eqX+24,eqY+lH*1.4);
+
+    ctx.fillStyle='#f0c040';
+    ctx.fillText('AC',eqX,eqY+lH*2.4);
+    ctx.fillStyle='rgba(255,255,255,0.8)';
+    ctx.fillText(' = ('+gACx+', '+gACy+')',eqX+24,eqY+lH*2.4);
+
+    ctx.font='11px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.55)';
+    ctx.fillText('AB.x\u00b7AC.y - AB.y\u00b7AC.x',eqX,eqY+lH*3.7);
+
+    ctx.font='12px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.fillText('('+gABx+')\u00b7('+gACy+') - ('+gABy+')\u00b7('+gACx+')',eqX,eqY+lH*4.7);
+
+    ctx.font='bold 18px "Space Mono",monospace';
+    ctx.fillStyle=cCol;
+    ctx.fillText('= '+gCross,eqX,eqY+lH*6.2);
+
+    ctx.font='bold 13px "Space Mono",monospace';
+    ctx.fillStyle='#ffffff';
+    var concl=isPositive?'\u2192 positive \u2192 left side':'\u2192 negative \u2192 right side';
+    ctx.fillText(concl,eqX,eqY+lH*7.5);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<!-- 3. CONVEX POLYGON — EDGE-BY-EDGE, RESTART ON DRAG -->
+<script>
+(function(){
+  const canvas=document.getElementById('polyCanvas'),ctx=canvas.getContext('2d');
+  const statusEl=document.getElementById('polyStatus');
+  let W,H,dpr;
+  function resize(){const r=canvas.parentElement.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();window.addEventListener('resize',resize);
+
+  const LABELS=['A','B','C','D','E'];
+
+  function getVerts(){
+    const cx=W*0.5,cy=H*0.48,r=Math.min(W,H)*0.28;
+    const angles=[
+      -Math.PI/2 - Math.PI*2/5,
+      -Math.PI/2,
+      -Math.PI/2 + Math.PI*2/5,
+      -Math.PI/2 + 2*Math.PI*2/5,
+      -Math.PI/2 + 3*Math.PI*2/5
+    ];
+    return angles.map(function(a){return [cx+Math.cos(a)*r, cy+Math.sin(a)*r];});
+  }
+
+  let pX=0.5,pY=0.48,dragging=false,animStart=0,t=0;
+
+  canvas.addEventListener('mousedown',function(e){var r=canvas.getBoundingClientRect();if(Math.hypot(e.clientX-r.left-pX*W,e.clientY-r.top-pY*H)<30)dragging=true;});
+  canvas.addEventListener('mousemove',function(e){if(!dragging)return;var r=canvas.getBoundingClientRect();pX=Math.max(.05,Math.min(.95,(e.clientX-r.left)/W));pY=Math.max(.05,Math.min(.95,(e.clientY-r.top)/H));});
+  canvas.addEventListener('mouseup',function(){if(dragging){dragging=false;animStart=t;}});
+  canvas.addEventListener('mouseleave',function(){if(dragging){dragging=false;animStart=t;}});
+  canvas.addEventListener('touchstart',function(e){e.preventDefault();var r=canvas.getBoundingClientRect();var tc=e.touches[0];if(Math.hypot(tc.clientX-r.left-pX*W,tc.clientY-r.top-pY*H)<40)dragging=true;},{passive:false});
+  canvas.addEventListener('touchmove',function(e){e.preventDefault();if(!dragging)return;var r=canvas.getBoundingClientRect();var tc=e.touches[0];pX=Math.max(.05,Math.min(.95,(tc.clientX-r.left)/W));pY=Math.max(.05,Math.min(.95,(tc.clientY-r.top)/H));},{passive:false});
+  canvas.addEventListener('touchend',function(){if(dragging){dragging=false;animStart=t;}});
+
+  function cross2(ax,ay,bx,by){return ax*by-ay*bx;}
+  function drawArrow(x1,y1,x2,y2,color,lw){
+    var dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);if(len<1)return;
+    var ux=dx/len,uy=dy/len;
+    ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+    ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-ux*8-uy*3.5,y2-uy*8+ux*3.5);ctx.lineTo(x2-ux*8+uy*3.5,y2-uy*8-ux*3.5);ctx.fill();
+  }
+
+  var EDGE_DUR=1.3,PAUSE=0.5,STEP_T=EDGE_DUR+PAUSE;
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);t+=1/60;
+    var verts=getVerts(),nE=verts.length;
+    var px=pX*W,py=pY*H;
+
+    var crosses=[],signs=[];
+    for(var i=0;i<nE;i++){
+      var j=(i+1)%nE;
+      var abx=verts[j][0]-verts[i][0],aby=verts[j][1]-verts[i][1];
+      var apx=px-verts[i][0],apy=py-verts[i][1];
+      var c=cross2(abx,aby,apx,apy);
+      crosses.push(c);
+      signs.push(c>=0?'+':'\u2212');
+    }
+
+    var allPos=true,allNeg=true;
+    for(var k=0;k<crosses.length;k++){
+      if(crosses[k]<0)allPos=false;
+      if(crosses[k]>0)allNeg=false;
+    }
+    var allIn=allPos||allNeg;
+
+    var refPositive=crosses[0]>=0;
+
+    var elapsed=dragging?0:(t-animStart);
+    var totalCycle=nE*STEP_T+3.0;
+    var cycleT=elapsed%totalCycle;
+    var curStep=Math.floor(cycleT/STEP_T);
+    var stepProg=(cycleT-curStep*STEP_T)/STEP_T;
+    var finalPhase=curStep>=nE;
+    var edgesDone=finalPhase?nE:curStep;
+
+    ctx.fillStyle=(finalPhase&&allIn)?'rgba(232,69,69,0.06)':'rgba(255,255,255,0.04)';
+    ctx.beginPath();ctx.moveTo(verts[0][0],verts[0][1]);
+    for(var i2=1;i2<nE;i2++)ctx.lineTo(verts[i2][0],verts[i2][1]);
+    ctx.closePath();ctx.fill();
+
+    for(var idx=0;idx<nE;idx++){
+      var ii=idx,jj=(idx+1)%nE;
+      var v1=verts[ii],v2=verts[jj];
+      var isActive=!finalPhase&&idx===curStep;
+      var isDone=idx<edgesDone;
+      var sameSign=(crosses[idx]>=0)===refPositive;
+
+      var col,alpha,lw;
+      if(isActive){col=sameSign?'#3ecf8e':'#e84545';alpha=1;lw=3;}
+      else if(isDone||finalPhase){col=sameSign?'#3ecf8e':'#e84545';alpha=0.4;lw=2;}
+      else{col='rgba(255,255,255,0.35)';alpha=1;lw=1.5;}
+
+      ctx.strokeStyle=col;ctx.globalAlpha=alpha;ctx.lineWidth=lw;
+      ctx.beginPath();ctx.moveTo(v1[0],v1[1]);ctx.lineTo(v2[0],v2[1]);ctx.stroke();
+      ctx.globalAlpha=1;
+
+      ctx.beginPath();ctx.arc(v1[0],v1[1],4,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.6)';ctx.fill();
+      var vcx=W*0.5,vcy=H*0.48;
+      var ddx=v1[0]-vcx,ddy=v1[1]-vcy,ddl=Math.hypot(ddx,ddy);
+      var lx=v1[0]+(ddx/ddl)*18,ly=v1[1]+(ddy/ddl)*18;
+      ctx.font='bold 12px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.6)';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(LABELS[ii],lx,ly);
+      ctx.textBaseline='alphabetic';
+
+      if(isDone||(isActive&&stepProg>0.6)){
+        var mx=(v1[0]+v2[0])/2,my=(v1[1]+v2[1])/2;
+        var nx=-(v2[1]-v1[1]),ny=v2[0]-v1[0],nl=Math.hypot(nx,ny);
+        var ox=mx+(nx/nl)*24,oy=my+(ny/nl)*24;
+        ctx.font='bold 14px "Space Mono",monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillStyle=sameSign?'rgba(62,207,142,0.8)':'rgba(232,69,69,0.8)';
+        ctx.fillText(signs[idx],ox,oy);
+        ctx.textBaseline='alphabetic';
+      }
+
+      if(isActive&&!dragging){
+        var vp=Math.min(1,stepProg/0.55);
+        var ep=vp*vp*(3-2*vp);
+        var abEX=v1[0]+(v2[0]-v1[0])*ep,abEY=v1[1]+(v2[1]-v1[1])*ep;
+        drawArrow(v1[0],v1[1],abEX,abEY,'rgba(74,158,255,0.7)',2);
+        var acEX=v1[0]+(px-v1[0])*ep,acEY=v1[1]+(py-v1[1])*ep;
+        drawArrow(v1[0],v1[1],acEX,acEY,'rgba(240,192,64,0.7)',2);
+
+        if(vp>0.3){
+          ctx.font='10px "Space Mono",monospace';ctx.textAlign='center';ctx.globalAlpha=vp;
+          var edgeLbl=LABELS[ii]+LABELS[jj];
+          var ptLbl=LABELS[ii]+'P';
+          var abMx=(v1[0]+abEX)/2,abMy=(v1[1]+abEY)/2;
+          var enx=-(v2[1]-v1[1]),eny=v2[0]-v1[0],enl=Math.hypot(enx,eny);
+          ctx.fillStyle='rgba(74,158,255,0.7)';
+          ctx.fillText(edgeLbl,abMx-(enx/enl)*14,abMy-(eny/enl)*14);
+          var acMx=(v1[0]+acEX)/2,acMy=(v1[1]+acEY)/2;
+          ctx.fillStyle='rgba(240,192,64,0.7)';
+          ctx.fillText(ptLbl,acMx+14,acMy-6);
+          ctx.globalAlpha=1;
+        }
+      }
+    }
+
+    var pulse=0.5+0.5*Math.sin(t*3);
+    ctx.beginPath();ctx.arc(px,py,10+pulse*2,0,Math.PI*2);
+    ctx.fillStyle=allIn?'rgba(232,69,69,0.1)':'rgba(74,158,255,0.07)';ctx.fill();
+    ctx.beginPath();ctx.arc(px,py,6,0,Math.PI*2);
+    ctx.fillStyle=allIn?'#e84545':'#4a9eff';ctx.fill();
+
+    ctx.font='bold 12px "Space Mono",monospace';ctx.fillStyle=allIn?'#e84545':'#4a9eff';ctx.textAlign='center';
+    ctx.fillText('P',px,py-14);
+
+    if(!dragging){ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.55)';ctx.textAlign='center';ctx.fillText('drag me',px,py+20);}
+
+    if(finalPhase&&!dragging){
+      var signStr=signs.join(' , ');
+      ctx.textAlign='center';
+      if(allIn){
+        ctx.font='bold 16px "Space Mono",monospace';ctx.fillStyle='#ffffff';
+        ctx.fillText('same sign \u2192 inside',W/2,H-42);
+        ctx.font='bold 12px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.6)';
+        ctx.fillText('signs: [ '+signStr+' ]',W/2,H-22);
+      } else {
+        ctx.font='bold 16px "Space Mono",monospace';ctx.fillStyle='#ffffff';
+        ctx.fillText('different signs \u2192 outside',W/2,H-42);
+        ctx.font='bold 12px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.6)';
+        ctx.fillText('signs: [ '+signStr+' ]',W/2,H-22);
+      }
+    }
+
+    if(dragging){statusEl.textContent='release to test...';}
+    else if(finalPhase){
+      statusEl.textContent=allIn?'all same sign \u2192 collision':'different signs \u2192 no collision';
+    }
+    else if(curStep<nE){
+      var edgeLbl2=LABELS[curStep]+LABELS[(curStep+1)%nE];
+      var ptLbl2=LABELS[curStep]+'P';
+      statusEl.textContent=edgeLbl2+' \u00d7 '+ptLbl2+' \u2192 '+signs[curStep];
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<!-- 4. RAY CASTING -->
+<script>
+(function(){
+  const canvas=document.getElementById('rayCanvas'),ctx=canvas.getContext('2d');
+  const statusEl=document.getElementById('rayStatus');
+  let W,H,dpr;
+  function resize(){const r=canvas.parentElement.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();window.addEventListener('resize',resize);
+
+  function getVerts(){
+    const cx=W*0.5,cy=H*0.48,r=Math.min(W,H)*0.3;
+    return [[cx-r*0.9,cy-r*0.7],[cx+r*0.3,cy-r*0.8],[cx+r*0.9,cy-r*0.3],[cx+r*0.4,cy+r*0.1],[cx+r*0.85,cy+r*0.7],[cx+r*0.1,cy+r*0.5],[cx-r*0.4,cy+r*0.85],[cx-r*0.5,cy+r*0.15]];
+  }
+
+  let pX=0.35,pY=0.45,dragging=false;
+  function addDrag(el){
+    el.addEventListener('mousedown',e=>{const r=el.getBoundingClientRect();if(Math.hypot(e.clientX-r.left-pX*W,e.clientY-r.top-pY*H)<30)dragging=true;});
+    el.addEventListener('mousemove',e=>{if(!dragging)return;const r=el.getBoundingClientRect();pX=Math.max(.05,Math.min(.95,(e.clientX-r.left)/W));pY=Math.max(.05,Math.min(.95,(e.clientY-r.top)/H));});
+    el.addEventListener('mouseup',()=>dragging=false);el.addEventListener('mouseleave',()=>dragging=false);
+    el.addEventListener('touchstart',e=>{e.preventDefault();const r=el.getBoundingClientRect();const tc=e.touches[0];if(Math.hypot(tc.clientX-r.left-pX*W,tc.clientY-r.top-pY*H)<40)dragging=true;},{passive:false});
+    el.addEventListener('touchmove',e=>{e.preventDefault();if(!dragging)return;const r=el.getBoundingClientRect();const tc=e.touches[0];pX=Math.max(.05,Math.min(.95,(tc.clientX-r.left)/W));pY=Math.max(.05,Math.min(.95,(tc.clientY-r.top)/H));},{passive:false});
+    el.addEventListener('touchend',()=>dragging=false);
+  }
+  addDrag(canvas);
+
+  function segHitRay(px,py,x1,y1,x2,y2){
+    const dx=x2-x1,dy=y2-y1,den=dy;
+    if(Math.abs(den)<1e-10)return null;
+    const t2=((x1-px)*dy-(y1-py)*dx)/den;
+    const u=((x1-px)*0-(y1-py)*1)/den;
+    const rdx=1,rdy=0;
+    const denom=rdx*dy-rdy*dx;
+    if(Math.abs(denom)<1e-10)return null;
+    const tt=((x1-px)*dy-(y1-py)*dx)/denom;
+    const uu=((x1-px)*rdy-(y1-py)*rdx)/denom;
+    if(tt>=0&&uu>=0&&uu<=1)return{t:tt,x:px+tt,y:py};
+    return null;
+  }
+
+  let t=0;
+  function draw(){
+    ctx.clearRect(0,0,W,H);t+=1/60;
+    const verts=getVerts(),px=pX*W,py=pY*H;
+    const hits=[],hitEdges=new Set();
+    for(let i=0;i<verts.length;i++){
+      const j=(i+1)%verts.length;
+      const res=segHitRay(px,py,verts[i][0],verts[i][1],verts[j][0],verts[j][1]);
+      if(res){hits.push(res);hitEdges.add(i);}
+    }
+    hits.sort((a,b)=>a.t-b.t);
+    const inside=hits.length%2===1;
+
+    for(let i=0;i<verts.length;i++){
+      const j=(i+1)%verts.length;
+      ctx.strokeStyle=hitEdges.has(i)?'rgba(232,69,69,0.8)':'rgba(255,255,255,0.35)';
+      ctx.lineWidth=hitEdges.has(i)?2.5:1.5;
+      ctx.beginPath();ctx.moveTo(verts[i][0],verts[i][1]);ctx.lineTo(verts[j][0],verts[j][1]);ctx.stroke();
+    }
+    ctx.fillStyle=inside?'rgba(232,69,69,0.05)':'rgba(255,255,255,0.03)';
+    ctx.beginPath();ctx.moveTo(verts[0][0],verts[0][1]);for(let i=1;i<verts.length;i++)ctx.lineTo(verts[i][0],verts[i][1]);ctx.closePath();ctx.fill();
+    for(const v of verts){ctx.beginPath();ctx.arc(v[0],v[1],3.5,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.5)';ctx.fill();}
+
+    const rayEnd=W+20,rayAnim=Math.min(1,((t*0.8)%2)),animEnd=px+(rayEnd-px)*rayAnim;
+    ctx.strokeStyle='rgba(240,192,64,0.4)';ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
+    ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(animEnd,py);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='rgba(240,192,64,0.4)';ctx.beginPath();ctx.moveTo(animEnd,py);ctx.lineTo(animEnd-8,py-4);ctx.lineTo(animEnd-8,py+4);ctx.fill();
+
+    for(const h of hits){
+      if(h.x<=animEnd){
+        ctx.beginPath();ctx.arc(h.x,h.y,7,0,Math.PI*2);ctx.fillStyle='rgba(62,207,142,0.15)';ctx.fill();
+        ctx.beginPath();ctx.arc(h.x,h.y,5,0,Math.PI*2);ctx.fillStyle='#3ecf8e';ctx.fill();
+      }
+    }
+
+    const pulse=0.5+0.5*Math.sin(t*3);
+    ctx.beginPath();ctx.arc(px,py,10+pulse*3,0,Math.PI*2);ctx.fillStyle=inside?'rgba(232,69,69,0.12)':'rgba(74,158,255,0.08)';ctx.fill();
+    ctx.beginPath();ctx.arc(px,py,7,0,Math.PI*2);ctx.fillStyle=inside?'#e84545':'#4a9eff';ctx.fill();
+    if(!dragging){ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(255,255,255,0.55)';ctx.textAlign='center';ctx.fillText('drag me',px,py+22);}
+
+    statusEl.textContent='intersections: '+hits.length+' → '+(inside?'inside (odd)':'outside (even)');
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<!-- 5. PARALLEL CHECK -->
+<script>
+(function(){
+  const canvas=document.getElementById('parallelCanvas'),ctx=canvas.getContext('2d');
+  const slider=document.getElementById('sliderCores'),valEl=document.getElementById('valCores'),statusEl=document.getElementById('parallelStatus');
+  let W,H,dpr;
+  function resize(){const r=canvas.parentElement.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();window.addEventListener('resize',resize);
+  slider.addEventListener('input',()=>{valEl.textContent=slider.value;});
+
+  const colors=['#4a9eff','#d946ef','#f0c040','#3ecf8e'],N=100;
+  let t=0;
+  function draw(){
+    ctx.clearRect(0,0,W,H);t+=1/60;
+    const cores=parseInt(slider.value),pad=60,gW=W-pad*2,gH=H-pad*2;
+    const pathY=pad+gH*0.35,pX0=pad+20,pX1=pad+gW-20;
+
+    ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pX0,pathY);ctx.lineTo(pX1,pathY);ctx.stroke();
+
+    const pv=[[W*0.45,pathY-60],[W*0.58,pathY-45],[W*0.6,pathY+50],[W*0.42,pathY+55]];
+    ctx.fillStyle='rgba(255,255,255,0.04)';ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(pv[0][0],pv[0][1]);for(let i=1;i<pv.length;i++)ctx.lineTo(pv[i][0],pv[i][1]);ctx.closePath();ctx.fill();ctx.stroke();
+
+    function inPoly(px,py){let ins=false;for(let i=0,j=pv.length-1;i<pv.length;j=i++){const xi=pv[i][0],yi=pv[i][1],xj=pv[j][0],yj=pv[j][1];if((yi>py)!==(yj>py)&&px<(xj-xi)*(py-yi)/(yj-yi)+xi)ins=!ins;}return ins;}
+
+    const dur=3,perC=dur/cores,cycle=perC+1.5,aT=t%cycle,prog=Math.min(1,aT/perC),ppc=Math.ceil(N/cores);
+    let hit=false;
+    for(let i=0;i<N;i++){
+      const f=i/(N-1),sx=pX0+f*(pX1-pX0),cI=Math.floor(i/ppc),wc=i-cI*ppc,cp=Math.floor(prog*ppc),chk=wc<=cp,col=colors[cI%colors.length];
+      const isColl=inPoly(sx,pathY);if(isColl&&chk)hit=true;
+      if(chk){ctx.beginPath();ctx.arc(sx,pathY,5,0,Math.PI*2);if(isColl){ctx.fillStyle='rgba(232,69,69,0.9)';ctx.fill();ctx.beginPath();ctx.arc(sx,pathY,9,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.15)';ctx.fill();}else{ctx.fillStyle=col;ctx.globalAlpha=0.7;ctx.fill();ctx.globalAlpha=1;}}
+      else{ctx.beginPath();ctx.arc(sx,pathY,3,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fill();}
+    }
+    for(let c=0;c<cores;c++){
+      const sI=c*ppc,eI=Math.min(N-1,(c+1)*ppc-1);
+      const x0=pX0+(sI/(N-1))*(pX1-pX0),x1=pX0+(eI/(N-1))*(pX1-pX0),bY=pathY+22;
+      ctx.strokeStyle=colors[c];ctx.lineWidth=1;ctx.globalAlpha=0.35;
+      ctx.beginPath();ctx.moveTo(x0,bY);ctx.lineTo(x0,bY+6);ctx.lineTo(x1,bY+6);ctx.lineTo(x1,bY);ctx.stroke();ctx.globalAlpha=1;
+      ctx.font='9px "Space Mono",monospace';ctx.fillStyle=colors[c];ctx.globalAlpha=0.5;ctx.textAlign='center';ctx.fillText('core '+(c+1),(x0+x1)/2,bY+18);ctx.globalAlpha=1;
+    }
+    const bW=120,bH=6,bX=W-pad-bW,bY2=pad;
+    ctx.fillStyle='rgba(255,255,255,0.05)';ctx.beginPath();
+    if(ctx.roundRect){ctx.roundRect(bX,bY2,bW,bH,3);}else{ctx.rect(bX,bY2,bW,bH);}
+    ctx.fill();
+    ctx.fillStyle=hit?'#e84545':'#3ecf8e';ctx.beginPath();
+    if(ctx.roundRect){ctx.roundRect(bX,bY2,bW*prog,bH,3);}else{ctx.rect(bX,bY2,bW*prog,bH);}
+    ctx.fill();
+    ctx.font='10px "Space Mono",monospace';ctx.fillStyle='#7a8499';ctx.textAlign='right';ctx.fillText(Math.floor(prog*100)+'%',bX-8,bY2+6);
+    statusEl.textContent=prog>=1?(hit?'collision detected!':'path is clear'):'checking... '+cores+' core'+(cores>1?'s':'')+' active';
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<!-- 6. DISCRETIZATION CAVEAT -->
+<script>
+(function(){
+  const canvas=document.getElementById('caveatCanvas'),ctx=canvas.getContext('2d');
+  const slider=document.getElementById('sliderCaveatN'),valEl=document.getElementById('valCaveatN'),statusEl=document.getElementById('caveatStatus');
+  let W,H,dpr;
+  function resize(){const r=canvas.parentElement.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();window.addEventListener('resize',resize);
+  slider.addEventListener('input',()=>{valEl.textContent=slider.value;});
+
+  let t=0;
+  function draw(){
+    ctx.clearRect(0,0,W,H);t+=1/60;
+    const N=parseInt(slider.value),pad=60,gW=W-pad*2,pathY=H*0.5,pX0=pad+20,pX1=pad+gW-20;
+    const oW=18,oH=40,oCX=(pX0+pX1)*0.52,oCY=pathY;
+
+    ctx.strokeStyle='rgba(74,158,255,0.2)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(pX0,pathY);ctx.lineTo(pX1,pathY);ctx.stroke();
+
+    const pulse=0.5+0.5*Math.sin(t*2);
+    ctx.fillStyle='rgba(232,69,69,'+(0.06+pulse*0.03)+')';ctx.strokeStyle='rgba(232,69,69,0.5)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.rect(oCX-oW/2,oCY-oH/2,oW,oH);ctx.fill();ctx.stroke();
+
+    let anyHit=false;
+    for(let i=0;i<N;i++){
+      const f=i/(N-1),sx=pX0+f*(pX1-pX0);
+      const hit=sx>=oCX-oW/2&&sx<=oCX+oW/2;
+      if(hit)anyHit=true;
+      ctx.beginPath();ctx.arc(sx,pathY,hit?6:4,0,Math.PI*2);ctx.fillStyle=hit?'#e84545':'rgba(240,192,64,0.7)';ctx.fill();
+      if(hit){ctx.beginPath();ctx.arc(sx,pathY,10,0,Math.PI*2);ctx.fillStyle='rgba(232,69,69,0.15)';ctx.fill();}
+    }
+
+    ctx.textAlign='center';
+    if(!anyHit){
+      const wp=0.5+0.5*Math.sin(t*4);
+      ctx.font='bold 13px "Space Mono",monospace';ctx.fillStyle='rgba(240,192,64,'+(0.4+wp*0.3)+')';
+      ctx.fillText('OBSTACLE MISSED',W/2,pathY-50);
+      ctx.font='10px "Space Mono",monospace';ctx.fillStyle='rgba(240,192,64,0.35)';
+      ctx.fillText('increase points to detect',W/2,pathY-34);
+    } else {
+      ctx.font='bold 13px "Space Mono",monospace';ctx.fillStyle='rgba(232,69,69,0.65)';
+      ctx.fillText('COLLISION DETECTED',W/2,pathY-50);
+    }
+
+    ctx.font='10px "Space Mono",monospace';ctx.fillStyle='#7a8499';
+    ctx.fillText('A',pX0,pathY+28);ctx.fillText('B',pX1,pathY+28);
+
+    statusEl.textContent=anyHit?'collision detected — '+N+' points':'no collision detected — obstacle missed!';
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
