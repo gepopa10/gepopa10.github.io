@@ -707,7 +707,7 @@ canvas.grab:active { cursor: grabbing; }
   var ALT_BASE=130, ALT_AMP=45;
 
   var t=0, lastRead=-999;
-  var gpsH=[], lasH=[], meanH=[];
+  var lasH=[], meanH=[];
 
   function gauss(s){
     var u=Math.random(), v=Math.random();
@@ -816,10 +816,9 @@ canvas.grab:active { cursor: grabbing; }
 
     if(t-lastRead>=READ_DT){
       lastRead=t;
-      if(rawT<READ_DT*2){ gpsH.length=0; lasH.length=0; }
-      gpsH.push(alt+gauss(GPS_SIG));
+      if(rawT<READ_DT*2){ lasH.length=0; }
       lasH.push(alt+gauss(LAS_SIG));
-      if(gpsH.length>MAX_HIST){ gpsH.shift(); lasH.shift(); }
+      if(lasH.length>MAX_HIST){ lasH.shift(); }
       meanH=rollingMean(lasH,ROLL_WIN);
     }
 
@@ -881,9 +880,6 @@ canvas.grab:active { cursor: grabbing; }
     /* altimeter (noisy, faint) */
     plotLine(lasH,'rgba(232,69,69,0.45)',1.2,ox,oy,pw,ph,yLo,yHi);
 
-    /* GPS (orange, clean) */
-    plotLine(gpsH,'rgba(240,144,64,0.85)',2.2,ox,oy,pw,ph,yLo,yHi);
-
     /* altimeter rolling mean (green, prominent) */
     plotLine(meanH,'rgba(62,207,142,0.95)',3.0,ox,oy,pw,ph,yLo,yHi);
 
@@ -904,7 +900,6 @@ canvas.grab:active { cursor: grabbing; }
     /* legend */
     var ly=gy+12;
     var items=[
-      {col:'rgba(240,144,64,0.9)',  lbl:'GPS'},
       {col:'rgba(232,69,69,0.65)',  lbl:'Altimeter'},
       {col:'rgba(62,207,142,0.95)', lbl:'Altimeter mean'},
     ];
@@ -932,7 +927,342 @@ canvas.grab:active { cursor: grabbing; }
 
 <div class="dp">
 <p>Let's examine in detail how to do that.</p>
-<p>To use the short term dynamics of the GPS signal, we want to blend the signal towards the rate of change. If the change is high it means the airplane is rapidly gaining altitude and we want to capture that information. Thus, the reported altitude for short term dynamics is the previous altitude + the change of altitude.</p>
+<p>To use the short term dynamics of the GPS signal, we want to blend the signal towards the rate of change. If the change is high it means the airplane is rapidly gaining altitude and we want to capture that information.</p>
+</div>
+
+<!-- ══════════════════ SHORT-TERM DYNAMICS ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+<canvas id="shortTermCanvas" class="sq"></canvas>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('shortTermCanvas');
+  var ctx=cv.getContext('2d');
+  var W,H,dpr;
+  function resize(){
+    var r=cv.parentElement.getBoundingClientRect();
+    dpr=window.devicePixelRatio||1; W=r.width; H=Math.round(W*0.5625);
+    cv.width=W*dpr; cv.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  var LOOP_T=20;
+  var ALT_LOW=100, ALT_HIGH=220;
+  var GPS_NOISE=1.8, LAS_NOISE=22;
+  var MAX_HIST=100, READ_DT=0.08;
+
+  var t=0, lastRead=-999;
+  var gpsH=[], lasH=[];
+
+  /* smoothed altimeter arrow endpoints */
+  var sly0=null, sly1=null;
+  var SMOOTH=0.08; /* lower = smoother */
+
+  /* smoothed text Y positions */
+  var sgpsTextY=null, slasTextY=null;
+  var TEXT_SMOOTH=0.04; /* even smoother for text */
+
+  function gauss(s){
+    var u=Math.random(), v=Math.random();
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  }
+
+  /* aircraft goes up then comes back down */
+  function trueAlt(rawT){
+    var p=rawT/LOOP_T; /* 0→1 */
+    var mid=(ALT_LOW+ALT_HIGH)/2;
+    var amp=(ALT_HIGH-ALT_LOW)/2;
+    return mid+amp*Math.sin(2*Math.PI*p-Math.PI/2); /* starts low, peaks mid-cycle, returns low */
+  }
+
+  /* ── plane drawing (same style) ── */
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff',f2='rgba(74,158,255,0.75)',ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    /* laser emitter */
+    ctx.fillStyle='rgba(232,69,69,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-s*0.55,s*0.65); ctx.lineTo(s*0.10,s*1.45); ctx.lineTo(s*0.75,s*0.65);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function plotLine(hist,color,lw,gx,gy,pw,ph,yLo,yHi){
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx=gx+(i/(MAX_HIST-1))*pw;
+      var hy=gy+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy=Math.max(gy,Math.min(gy+ph,hy));
+      if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+    }
+    ctx.stroke();
+  }
+
+  /* draw a thick filled arrow from (x0,y0) to (x1,y1) */
+  function drawArrow(x0,y0,x1,y1,color,thickness){
+    var dx=x1-x0, dy=y1-y0, len=Math.sqrt(dx*dx+dy*dy);
+    if(len<1) return;
+    var ux=dx/len, uy=dy/len;       /* unit along shaft */
+    var nx=-uy, ny=ux;               /* unit perpendicular */
+    var hw=thickness/2;              /* half-width of shaft */
+    var headW=thickness*1.8;         /* half-width of arrowhead */
+    var headL=thickness*2.4;         /* length of arrowhead */
+    /* shaft end (where arrowhead starts) */
+    var sx=x1-ux*headL, sy=y1-uy*headL;
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    /* shaft rectangle */
+    ctx.moveTo(x0+nx*hw, y0+ny*hw);
+    ctx.lineTo(sx+nx*hw, sy+ny*hw);
+    /* arrowhead */
+    ctx.lineTo(sx+nx*headW, sy+ny*headW);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(sx-nx*headW, sy-ny*headW);
+    /* back along shaft */
+    ctx.lineTo(sx-nx*hw, sy-ny*hw);
+    ctx.lineTo(x0-nx*hw, y0-ny*hw);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+    var rawT=t%LOOP_T;
+    var alt=trueAlt(rawT);
+    var groundY=H*0.82;
+    var altRange=ALT_HIGH+40;
+    var apy=groundY-(alt/altRange)*(groundY-H*0.06);
+    var apx=W*0.28;
+
+    /* record readings */
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      if(rawT<READ_DT*2){ gpsH.length=0; lasH.length=0; sly0=null; sly1=null; sgpsTextY=null; slasTextY=null; }
+      gpsH.push(alt+gauss(GPS_NOISE));
+      lasH.push(alt+gauss(LAS_NOISE));
+      if(gpsH.length>MAX_HIST){ gpsH.shift(); lasH.shift(); }
+    }
+
+    /* sky */
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710'); sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+
+    /* ground */
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+
+    /* altitude dashed line */
+    ctx.save(); ctx.setLineDash([3,4]);
+    ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,apy); ctx.lineTo(W*0.42,apy); ctx.stroke();
+    ctx.restore();
+
+    /* altitude label */
+    ctx.font='bold 13px "Space Mono",monospace';
+    ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(alt.toFixed(0)+'m', apx+H*0.12, apy);
+    ctx.textBaseline='alphabetic';
+
+    /* ascending arrow next to plane */
+    if(rawT>0.3){
+      ctx.save();
+      ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(apx-H*0.08,apy+H*0.04); ctx.lineTo(apx-H*0.08,apy-H*0.10); ctx.stroke();
+      ctx.restore();
+      drawArrow(apx-H*0.08,apy+H*0.04,apx-H*0.08,apy-H*0.10,'rgba(255,255,255,0.25)',1.5);
+    }
+
+    drawPlane(apx,apy);
+
+    /* ── right-side graph panel ── */
+    var gx=W*0.46, gy=H*0.04;
+    var gw=W*0.52, gh=H*0.90;
+    var mx=14,my=32,mr=8,mb=18;
+    var pw=gw-mx-mr, ph=gh-my-mb;
+    var yLo=ALT_LOW-40, yHi=ALT_HIGH+40;
+
+    ctx.beginPath();
+    ctx.fillStyle='rgba(8,10,15,0.88)';
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,6); else ctx.rect(gx,gy,gw,gh);
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+
+    /* grid */
+    ctx.strokeStyle='rgba(42,55,75,0.35)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=4;g++){
+      var gy2=gy+my+(g/4)*ph;
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+      if(g===0||g===2||g===4){
+        ctx.font='13px "Space Mono",monospace';
+        ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+        ctx.fillText((yHi-(g/4)*(yHi-yLo)).toFixed(0)+'m',gx+mx-3,gy2);
+      }
+    }
+    ctx.textBaseline='alphabetic';
+
+    var ox=gx+mx, oy=gy+my;
+
+    /* ── compute view offset so arrows lock to plot center ── */
+    var ARROW_WIN=8;
+    var HALF_VIS=Math.floor(MAX_HIST/2); /* index that maps to plot center */
+    var nPts=gpsH.length;
+    var arrowEnd=nPts-1;
+    var arrowStart=arrowEnd-ARROW_WIN;
+    var arrowMid=(arrowStart+arrowEnd)/2;
+    /* viewOff: subtract from data index to get plot-space index.
+       Once arrowMid > HALF_VIS the view starts scrolling. */
+    var viewOff=0;
+    if(arrowMid>HALF_VIS) viewOff=arrowMid-HALF_VIS;
+
+    /* helper: data index → pixel X in plot */
+    function idxToX(i){ return ox+((i-viewOff)/(MAX_HIST-1))*pw; }
+
+    /* clip to graph area */
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ox,oy,pw,ph); ctx.clip();
+
+    /* altimeter (very noisy, red) */
+    if(lasH.length>1){
+      ctx.strokeStyle='rgba(232,69,69,0.5)'; ctx.lineWidth=1.4;
+      ctx.beginPath();
+      for(var i=0;i<lasH.length;i++){
+        var hx=idxToX(i);
+        var hy=oy+ph-((lasH[i]-yLo)/(yHi-yLo))*ph;
+        hy=Math.max(oy,Math.min(oy+ph,hy));
+        if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+      }
+      ctx.stroke();
+    }
+
+    /* GPS (clean, orange) */
+    if(gpsH.length>1){
+      ctx.strokeStyle='rgba(240,144,64,0.9)'; ctx.lineWidth=2.2;
+      ctx.beginPath();
+      for(var i=0;i<gpsH.length;i++){
+        var hx=idxToX(i);
+        var hy=oy+ph-((gpsH[i]-yLo)/(yHi-yLo))*ph;
+        hy=Math.max(oy,Math.min(oy+ph,hy));
+        if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+      }
+      ctx.stroke();
+    }
+
+    ctx.restore(); /* remove clip */
+
+    /* ── sliding gradient arrows on the graph ── */
+    if(nPts>ARROW_WIN){
+
+      /* GPS arrow */
+      var gx0=idxToX(arrowStart);
+      var gy0=oy+ph-((gpsH[arrowStart]-yLo)/(yHi-yLo))*ph;
+      var gx1=idxToX(arrowEnd);
+      var gy1=oy+ph-((gpsH[arrowEnd]-yLo)/(yHi-yLo))*ph;
+      gy0=Math.max(oy,Math.min(oy+ph,gy0));
+      gy1=Math.max(oy,Math.min(oy+ph,gy1));
+
+      drawArrow(gx0,gy0,gx1,gy1,'rgba(240,144,64,0.75)',10);
+
+      /* label for GPS arrow — fixed horizontal, smoothed Y */
+      var rawGpsTextY=Math.min(gy0,gy1)-26;
+      if(sgpsTextY===null) sgpsTextY=rawGpsTextY;
+      sgpsTextY+=(rawGpsTextY-sgpsTextY)*TEXT_SMOOTH;
+      var gmx=(gx0+gx1)/2;
+      ctx.font='bold 15px "Space Mono",monospace';
+      ctx.fillStyle='rgba(240,144,64,0.95)';
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText('reliable increase short-term',gmx,sgpsTextY);
+
+      /* Altimeter arrow: smoothed to reduce jitter */
+      var rawLy0=oy+ph-((lasH[arrowStart]-yLo)/(yHi-yLo))*ph;
+      var rawLy1=oy+ph-((lasH[arrowEnd]-yLo)/(yHi-yLo))*ph;
+      rawLy0=Math.max(oy,Math.min(oy+ph,rawLy0));
+      rawLy1=Math.max(oy,Math.min(oy+ph,rawLy1));
+      if(sly0===null){ sly0=rawLy0; sly1=rawLy1; }
+      sly0+=(rawLy0-sly0)*SMOOTH;
+      sly1+=(rawLy1-sly1)*SMOOTH;
+      var lx0=idxToX(arrowStart);
+      var lx1=idxToX(arrowEnd);
+
+      drawArrow(lx0,sly0,lx1,sly1,'rgba(232,69,69,0.65)',10);
+
+      /* label for altimeter arrow — fixed horizontal, smoothed Y */
+      var rawLasTextY=Math.max(sly0,sly1)+26;
+      if(slasTextY===null) slasTextY=rawLasTextY;
+      slasTextY+=(rawLasTextY-slasTextY)*TEXT_SMOOTH;
+      var lmx=(lx0+lx1)/2;
+      ctx.font='bold 15px "Space Mono",monospace';
+      ctx.fillStyle='rgba(232,69,69,0.95)';
+      ctx.textAlign='center'; ctx.textBaseline='top';
+      ctx.fillText('unreliable short-term',lmx,slasTextY);
+    }
+
+    /* legend */
+    var ly=gy+12;
+    var items=[
+      {col:'rgba(240,144,64,0.9)',  lbl:'GPS'},
+      {col:'rgba(232,69,69,0.65)',  lbl:'Altimeter'},
+    ];
+    var lx2=gx+mx;
+    for(var k=0;k<items.length;k++){
+      ctx.strokeStyle=items[k].col; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(lx2,ly); ctx.lineTo(lx2+18,ly); ctx.stroke();
+      ctx.font='bold 13px "Space Mono",monospace';
+      ctx.fillStyle=items[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(items[k].lbl,lx2+24,ly);
+      ly+=H*0.065;
+    }
+    ctx.textBaseline='alphabetic';
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<div class="dp">
+<p>Thus, the reported altitude for short term dynamics is the previous altitude + the change of altitude.</p>
 <div class="eq-block">
   <span class="eq-line">High-pass:&nbsp;&nbsp; <span class="eq-var">y</span> = <span class="eq-res">α</span> × <span class="eq-var">y_prev</span> + <span class="eq-res">α</span> × (<span class="eq-var">x</span> − <span class="eq-var">x_prev</span>)</span>
 </div>
