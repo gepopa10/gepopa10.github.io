@@ -9,3 +9,4 @@ When the user provides text for a blog post:
 3. **Do not add, remove, or restructure sentences** beyond what is necessary to correct grammar or syntax.
 4. **Preserve the user's tone and style.**
 5. **Animation/illustration instructions** (e.g. `[animation ...]`) should be interpreted faithfully — do not change the described behaviour.
+6. **When the user provides an animation description in `[...]`, implement exactly that animation and do not add any extra text around it.**

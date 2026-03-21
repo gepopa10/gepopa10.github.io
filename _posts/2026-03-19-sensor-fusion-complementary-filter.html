@@ -1,0 +1,1730 @@
+---
+title: "Sensor Fusion — Complementary Filter"
+date: 2026-03-19 10:00:00 +0000
+categories: [Robotics, Sensors]
+tags: [robotics, sensor-fusion, filtering, sensors]
+image:
+  path: /sensor_fusion_preview.gif
+  alt: "GPS and laser altimeter sensor fusion with complementary filter"
+---
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+.dp {
+  --accent: #e84545;
+  --accent-glow: rgba(232, 69, 69, 0.15);
+  --blue: #4a9eff;
+  --blue-dim: rgba(74, 158, 255, 0.12);
+  --green: #3ecf8e;
+  --green-dim: rgba(62, 207, 142, 0.12);
+  --yellow: #f0c040;
+  --surface: #1a1e26;
+  --border: #2a3040;
+  --text-dim: #7a8499;
+}
+
+.dp p { margin-bottom: 24px; }
+.dp strong { color: #fff; }
+
+.dp .callout {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  padding: 22px 26px;
+  margin: 36px 0;
+  border-radius: 0 8px 8px 0;
+  font-size: 16px;
+}
+.dp .callout p { margin-bottom: 0; color: var(--text-dim); }
+.dp .callout strong { color: var(--accent); }
+.dp .callout.green { border-left-color: var(--green); }
+.dp .callout.green strong { color: var(--green); }
+.dp .callout.blue { border-left-color: var(--blue); }
+.dp .callout.blue strong { color: var(--blue); }
+
+.dp .eq-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 26px;
+  margin: 24px 0;
+  font-family: 'Space Mono', monospace;
+  font-size: 22px;
+  color: rgba(255,255,255,0.85);
+  line-height: 2.2;
+}
+.dp .eq-block .eq-line { display: block; }
+.dp .eq-block .eq-var  { color: #4a9eff; }
+.dp .eq-block .eq-res  { color: #f0c040; }
+
+.sim-wrap {
+  background: #0e1118;
+  border: 1px solid #2a3040;
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 48px 0;
+}
+.sim-canvas-wrap { position: relative; width: 100%; aspect-ratio: 4/3; background: #0a0c10; }
+.sim-canvas-wrap.wide { aspect-ratio: 16/9; }
+canvas { width: 100%; height: 100%; display: block; cursor: default; }
+canvas.grab { cursor: grab; }
+canvas.grab:active { cursor: grabbing; }
+
+.sim-ftr {
+  padding: 12px 20px;
+  border-top: 1px solid #2a3040;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sim-status { font-family: 'Space Mono', monospace; font-size: 11px; color: #7a8499; }
+
+.sim-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #2a3040;
+  background: #0e1118;
+  flex-wrap: wrap;
+}
+.sim-controls label {
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  color: #7a8499;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.sim-controls label span.ctrl-name { color: #4a9eff; min-width: 18px; }
+.sim-controls label span.ctrl-val  { color: #f0c040; min-width: 52px; text-align: right; }
+.sim-controls input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  width: 110px; height: 4px;
+  background: #2a3040; border-radius: 2px;
+  outline: none; cursor: pointer;
+}
+.sim-controls input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #4a9eff; border: none; cursor: pointer;
+}
+.sim-controls input[type=range]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #4a9eff; border: none; cursor: pointer;
+}
+</style>
+
+<div class="dp">
+<p>Let's say you are on an airplane traveling at low altitude.</p>
+<p>You are lucky and have at your disposal two sensors that give you the altitude.</p>
+<p>A <strong>GPS</strong> which reports the plane's altitude relative to mean sea level.</p>
+<p>A downward-facing <strong>laser altimeter</strong> which reports the airplane's height above ground.</p>
+<p>You notice that the GPS gives you a stable measurement that doesn't fluctuate much. However, on the flip side, when there is something on the ground like a tree the altitude doesn't change much. Also, you notice there is a positioning error accumulating over time because of satellite conditions.</p>
+</div>
+
+<!-- ══════════════════ GPS DRIFT ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+<canvas id="gpsDriftCanvas" class="sq"></canvas>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('gpsDriftCanvas');
+  var ctx=cv.getContext('2d');
+  var W,H;
+  function resize(){
+    var p=cv.parentElement;
+    W=p.clientWidth; H=Math.round(W*0.5625);
+    cv.width=W; cv.height=H;
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  var LOOP_T=10;
+  var ALT_M=150;
+  var GPS_NOISE=0.08, DRIFT_AMP=1;
+  var MAX_HIST=80, READ_DT=0.12;
+
+  var t=0, lastRead=-999;
+  var gpsH=[], trueH=[];
+
+  /* signal pulses from plane to satellite */
+  var pulses=[], lastPulse=0;
+
+  function gauss(s){
+    var u=Math.random(), v=Math.random();
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  }
+
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff',f2='rgba(74,158,255,0.75)',ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    /* GPS antenna yellow */
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSatellite(sx,sy){
+    /* body */
+    ctx.fillStyle='rgba(180,200,240,0.85)';
+    ctx.strokeStyle='rgba(100,160,255,0.5)';
+    ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.rect(sx-10,sy-6,20,12); ctx.fill(); ctx.stroke();
+    /* solar panels */
+    ctx.fillStyle='rgba(74,158,255,0.45)';
+    ctx.strokeStyle='rgba(74,158,255,0.6)';
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.rect(sx-30,sy-4,16,8); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.rect(sx+14,sy-4,16,8); ctx.fill(); ctx.stroke();
+    /* antenna dish */
+    ctx.strokeStyle='rgba(200,220,255,0.7)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(sx,sy+6); ctx.lineTo(sx+4,sy+14); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx+4,sy+14,5,Math.PI*0.9,Math.PI*2.1); ctx.stroke();
+    /* label */
+    ctx.font='bold 12px "Space Mono",monospace';
+    ctx.fillStyle='rgba(180,210,255,0.55)'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText('SAT',sx,sy-20);
+    ctx.textBaseline='alphabetic';
+  }
+
+  function plotLine(hist,color,lw,gx,gy,pw,ph,yLo,yHi){
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx=gx+(i/(MAX_HIST-1))*pw;
+      var hy=gy+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy=Math.max(gy,Math.min(gy+ph,hy));
+      if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+    }
+    ctx.stroke();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+    var rawT=t%LOOP_T;
+    var drift=DRIFT_AMP*(rawT/LOOP_T);
+    var groundY=H*0.72;
+    var apx=W*0.38;
+    var apy=groundY-(ALT_M/(ALT_M+40))*(groundY-H*0.10);
+    var satX=W*0.12, satY=H*0.12;
+
+    /* record readings */
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      if(rawT<READ_DT*2){ gpsH.length=0; trueH.length=0; }
+      trueH.push(ALT_M);
+      gpsH.push(ALT_M+drift+gauss(GPS_NOISE));
+      if(gpsH.length>MAX_HIST){ gpsH.shift(); trueH.shift(); }
+    }
+
+    /* signal pulses */
+    if(t-lastPulse>0.6){ lastPulse=t; pulses.push({born:t,prog:0}); }
+    var dt=1/60;
+    for(var i=pulses.length-1;i>=0;i--){
+      pulses[i].prog+=dt*1.4;
+      if(pulses[i].prog>1) pulses.splice(i,1);
+    }
+
+    /* sky */
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710'); sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+
+    /* ground */
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+
+    /* dashed signal line plane→satellite */
+    ctx.save(); ctx.setLineDash([4,5]);
+    ctx.strokeStyle='rgba(240,200,0,0.12)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(apx,apy); ctx.lineTo(satX,satY); ctx.stroke();
+    ctx.restore();
+
+    /* animated pulses along line */
+    for(var i=0;i<pulses.length;i++){
+      var p=pulses[i].prog;
+      var px2=apx+(satX-apx)*p, py2=apy+(satY-apy)*p;
+      ctx.beginPath(); ctx.arc(px2,py2,3.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(240,200,0,'+(0.8*(1-p))+')'; ctx.fill();
+      ctx.beginPath(); ctx.arc(px2,py2,7,0,Math.PI*2);
+      ctx.fillStyle='rgba(240,200,0,'+(0.15*(1-p))+')'; ctx.fill();
+    }
+
+    drawSatellite(satX,satY);
+    drawPlane(apx,apy);
+
+    /* GPS drift label next to plane */
+    var curGps=gpsH.length>0?gpsH[gpsH.length-1]:ALT_M;
+    var err=(curGps-ALT_M);
+    var errCol=Math.abs(err)<4?'rgba(62,207,142,0.8)':Math.abs(err)<10?'rgba(240,192,64,0.9)':'rgba(232,69,69,0.9)';
+    ctx.font='bold 13px "Space Mono",monospace';
+    ctx.fillStyle='rgba(240,200,0,0.85)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText('GPS: '+curGps.toFixed(0)+'m', apx-H*0.06, apy-H*0.03);
+    ctx.fillStyle=errCol; ctx.textAlign='right';
+    ctx.fillText('err: '+(err>=0?'+':'')+err.toFixed(1)+'m', apx-H*0.06, apy+H*0.03);
+    ctx.textBaseline='alphabetic';
+
+    /* ── right graph panel ── */
+    var gx=W*0.52, gy=H*0.04;
+    var gw=W*0.46, gh=H*0.90;
+    var mx=14,my=32,mr=8,mb=18;
+    var pw=gw-mx-mr, ph=gh-my-mb;
+    var yLo=ALT_M-7, yHi=ALT_M+7;
+
+    ctx.fillStyle='rgba(8,10,15,0.88)';
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,6); else ctx.rect(gx,gy,gw,gh);
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+
+    /* grid */
+    ctx.strokeStyle='rgba(42,55,75,0.35)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=4;g++){
+      var gy2=gy+my+(g/4)*ph;
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+      if(g===0||g===2||g===4){
+        ctx.font='13px "Space Mono",monospace';
+        ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+        ctx.fillText((yHi-(g/4)*(yHi-yLo)).toFixed(0)+'m',gx+mx-3,gy2);
+      }
+    }
+    ctx.textBaseline='alphabetic';
+
+    var ox=gx+mx, oy=gy+my;
+
+    /* true altitude (dashed white reference) */
+    plotLine(trueH,'rgba(255,255,255,0.2)',1,ox,oy,pw,ph,yLo,yHi);
+
+    /* GPS drifting line */
+    plotLine(gpsH,'rgba(240,144,64,0.9)',2.2,ox,oy,pw,ph,yLo,yHi);
+
+    /* legend */
+    var ly=gy+12;
+    var litems=[
+      {col:'rgba(255,255,255,0.4)', lbl:'True altitude'},
+      {col:'rgba(240,144,64,0.9)',  lbl:'GPS (drifting)'},
+    ];
+    var lx=gx+mx;
+    for(var k=0;k<litems.length;k++){
+      ctx.strokeStyle=litems[k].col; ctx.lineWidth=2;
+      if(k===0){ ctx.save(); ctx.setLineDash([4,4]); }
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+18,ly); ctx.stroke();
+      if(k===0) ctx.restore();
+      ctx.font='bold 13px "Space Mono",monospace';
+      ctx.fillStyle=litems[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(litems[k].lbl,lx+24,ly);
+      ly+=H*0.065;
+    }
+    ctx.textBaseline='alphabetic';
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<div class="dp">
+<p>The laser altimeter gives a very noisy measurement that fluctuates a lot but you notice it does report a lower altitude when there is something under the aircraft.</p>
+<p>You are not completely satisfied with either of those sensors.</p>
+<p>The GPS gives you a stable measurement but it doesn't report a change of altitude when there are obstacles on the ground which could be dangerous.</p>
+<p>The laser does perceive them but gives an altitude that varies too much to be physically plausible for an aircraft.</p>
+</div>
+
+<!-- ══════════════════ SENSOR ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+  <div class="sim-canvas-wrap wide"><canvas id="sensorCanvas"></canvas></div>
+</div>
+
+<script>
+(function(){
+  var canvas=document.getElementById('sensorCanvas'),ctx=canvas.getContext('2d');
+  var W,H,dpr;
+  function resize(){
+    var r=canvas.parentElement.getBoundingClientRect();
+    dpr=window.devicePixelRatio||1; W=r.width; H=r.height;
+    canvas.width=W*dpr; canvas.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  /* ── Constants ── */
+  var LOOP_T    = 9;
+  var TREE_SIG  = 0.055;
+  var ALT_M     = 150;
+  var TREE_H_M  = 42;
+  var GPS_SIG   = 2;
+  var LAS_SIG   = 12;
+  var MAX_HIST  = 90;
+  var READ_DT   = 0.10;
+  var TREES=[{nx:0.40,rh:0.65},{nx:0.46,rh:0.82},{nx:0.52,rh:0.95},{nx:0.57,rh:1.00},{nx:0.62,rh:0.88},{nx:0.67,rh:0.72},{nx:0.73,rh:0.55}];
+
+  var t=0, lastRead=-999;
+  var gpsHist=[], lasHist=[];
+
+  /* expose to animation 2 */
+  window._sfData = { gpsHist:gpsHist, lasHist:lasHist, ALT_M:ALT_M, TREE_H_M:TREE_H_M };
+
+  function gauss(s){
+    var u=Math.max(Math.random(),1e-10);
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
+  }
+  function treeH(nx){
+    var best=0;
+    for(var k=0;k<TREES.length;k++){
+      var d=nx-TREES[k].nx;
+      var h=TREE_H_M*TREES[k].rh*Math.exp(-d*d/(TREE_SIG*TREE_SIG));
+      if(h>best) best=h;
+    }
+    return best;
+  }
+
+  /* ── Drawing helpers ── */
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff', f2='rgba(74,158,255,0.75)', ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    ctx.fillStyle='rgba(232,69,69,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-s*0.55,s*0.65); ctx.lineTo(s*0.10,s*1.45); ctx.lineTo(s*0.75,s*0.65);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function treeTopY(x,groundY){
+    var best=groundY;
+    for(var k=0;k<TREES.length;k++){
+      var tr=TREES[k], cx=tr.nx*W, tH=H*0.21*tr.rh;
+      var trunkH=tH*0.30, cH=tH*0.80, cW=W*0.036;
+      var cbY=groundY-trunkH, ctY=groundY-trunkH-cH;
+      var dx=Math.abs(x-cx);
+      if(dx<cW){ var sy=ctY+(cbY-ctY)*(dx/cW); if(sy<best) best=sy; }
+    }
+    return best;
+  }
+
+  function drawBeams(px,py,groundY){
+    var N=7, spread=W*0.09;
+    for(var b=0;b<N;b++){
+      var endX=px+(b/(N-1)-0.5)*2*spread;
+      var endY=treeTopY(endX,groundY);
+      var grad=ctx.createLinearGradient(px,py+H*0.040,endX,endY);
+      grad.addColorStop(0,'rgba(232,69,69,0.55)');
+      grad.addColorStop(0.7,'rgba(232,69,69,0.15)');
+      grad.addColorStop(1,'rgba(232,69,69,0.0)');
+      ctx.save(); ctx.setLineDash([5,5]);
+      ctx.strokeStyle=grad; ctx.lineWidth=(b===3)?1.8:0.9;
+      ctx.beginPath(); ctx.moveTo(px,py+H*0.040); ctx.lineTo(endX,endY); ctx.stroke();
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(endX,endY,2.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(232,69,69,0.5)'; ctx.fill();
+    }
+  }
+
+  function drawForest(groundY){
+    for(var k=0;k<TREES.length;k++){
+      var tr=TREES[k], cx=tr.nx*W, tH=H*0.21*tr.rh;
+      var trunkH=tH*0.30, trunkW=W*0.007;
+      var cH=tH*0.80, cW=W*0.036;
+      ctx.fillStyle='#5a3820';
+      ctx.fillRect(cx-trunkW,groundY-trunkH,trunkW*2,trunkH);
+      ctx.fillStyle='rgba(30,80,44,0.92)';
+      ctx.beginPath();
+      ctx.moveTo(cx,groundY-trunkH-cH);
+      ctx.lineTo(cx+cW,groundY-trunkH);
+      ctx.lineTo(cx-cW,groundY-trunkH);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle='rgba(62,207,142,0.15)'; ctx.lineWidth=0.7; ctx.stroke();
+    }
+  }
+
+  function drawGraph(gx,gy,gw,gh,hist,label,color,yLo,yHi){
+    /* background panel */
+    ctx.fillStyle='rgba(8,10,15,0.88)';
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,6);
+    else { ctx.rect(gx,gy,gw,gh); }
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+    /* inner margins */
+    var mx=14,my=32,mr=10,mb=18;
+    var pw=gw-mx-mr, ph=gh-my-mb;
+    /* subtle grid */
+    ctx.strokeStyle='rgba(42,55,75,0.4)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=3;g++){
+      var gy2=gy+my+(g/3)*ph;
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+    }
+    /* label */
+    ctx.font='bold 16px "Space Mono",monospace';
+    ctx.fillStyle=color; ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText(label,gx+mx,gy+7);
+    /* y-axis ticks */
+    ctx.font='13px "Space Mono",monospace';
+    ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right';
+    ctx.fillText(yHi+'m',gx+mx-2,gy+my);
+    ctx.fillText(yLo+'m',gx+mx-2,gy+my+ph-4);
+    /* plot */
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx2=gx+mx+(i/(MAX_HIST-1))*pw;
+      var hy2=gy+my+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy2=Math.max(gy+my,Math.min(gy+my+ph,hy2));
+      if(i===0) ctx.moveTo(hx2,hy2); else ctx.lineTo(hx2,hy2);
+    }
+    ctx.stroke();
+    /* sample dots */
+    ctx.fillStyle=color;
+    for(var i=0;i<hist.length;i++){
+      var hx2=gx+mx+(i/(MAX_HIST-1))*pw;
+      var hy2=gy+my+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy2=Math.max(gy+my,Math.min(gy+my+ph,hy2));
+      ctx.beginPath(); ctx.arc(hx2,hy2,1.8,0,Math.PI*2); ctx.fill();
+    }
+    /* current value */
+    if(hist.length>0){
+      var last=hist[hist.length-1];
+      ctx.font='bold 14px "Space Mono",monospace';
+      ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.textAlign='right'; ctx.textBaseline='top';
+      ctx.fillText(last.toFixed(0)+'m',gx+gw-6,gy+7);
+    }
+    ctx.textBaseline='alphabetic';
+  }
+
+  /* arrow from point a to point b */
+  function drawArrow(x1,y1,x2,y2,col){
+    var dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy); if(len<4) return;
+    var ux=dx/len,uy=dy/len;
+    ctx.save(); ctx.setLineDash([4,4]);
+    ctx.strokeStyle=col; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle=col; ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-ux*7+uy*3.5,y2-uy*7-ux*3.5);
+    ctx.lineTo(x2-ux*7-uy*3.5,y2-uy*7+ux*3.5);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+
+    var rawT=t%LOOP_T;
+    var worldX=rawT/LOOP_T; /* 0→1 */
+    var apx=(worldX*1.3-0.15)*W;
+    var groundY=H*0.73;
+    var apy=groundY-(ALT_M/(ALT_M+30))*(groundY-H*0.10); /* constant height */
+
+    /* record readings */
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      /* reset at loop start */
+      if(rawT<READ_DT*2){ gpsHist.length=0; lasHist.length=0; }
+      var th=treeH(apx/W);
+      gpsHist.push(ALT_M+gauss(GPS_SIG));
+      lasHist.push(ALT_M-th+gauss(LAS_SIG));
+      if(gpsHist.length>MAX_HIST) gpsHist.shift();
+      if(lasHist.length>MAX_HIST) lasHist.shift();
+    }
+
+    /* sky gradient */
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710');
+    sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+
+    /* ground */
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    /* ground grid */
+    ctx.strokeStyle='rgba(30,42,56,0.5)'; ctx.lineWidth=1;
+    var gsp=W*0.055, goff=(t*gsp*0.35)%gsp;
+    for(var gx2=-gsp+goff;gx2<W+gsp;gx2+=gsp){
+      ctx.beginPath(); ctx.moveTo(gx2,groundY); ctx.lineTo(gx2-22,H); ctx.stroke();
+    }
+    /* ground line */
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+    /* sea-level label */
+    ctx.font='14px "Space Mono",monospace';
+    ctx.fillStyle='rgba(74,158,255,0.3)'; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    ctx.fillText('sea level (0 m)',8,groundY-6);
+
+    /* altitude line (dashed) */
+    ctx.save(); ctx.setLineDash([6,8]);
+    ctx.strokeStyle='rgba(74,158,255,0.08)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,apy); ctx.lineTo(W,apy); ctx.stroke();
+    ctx.restore();
+
+    /* forest */
+    drawForest(groundY);
+
+    /* laser beams (below aircraft) */
+    if(apx>-60&&apx<W+60) drawBeams(apx,apy,groundY);
+
+    /* aircraft */
+    if(apx>-80&&apx<W+80) drawPlane(apx,apy);
+
+    /* graph panels */
+    var GW=W*0.30, GH=H*0.34;
+    var yLo=80, yHi=190;
+    var gpsGX=W*0.015, gpsGY=H*0.035;
+    var lasGX=W*0.985-GW, lasGY=H*0.035;
+    drawGraph(gpsGX,gpsGY,GW,GH,gpsHist,'GPS altitude','#f09040',yLo,yHi);
+    drawGraph(lasGX,lasGY,GW,GH,lasHist,'Laser altimeter','#e84545',yLo,yHi);
+
+    /* arrows: graph → sensor on aircraft */
+    if(apx>W*0.15&&apx<W*0.85){
+      drawArrow(gpsGX+GW, gpsGY+GH*0.5,
+                apx+H*0.014, apy-H*0.083,
+                'rgba(240,144,64,0.55)');
+      drawArrow(lasGX, lasGY+GH*0.5,
+                apx+H*0.006, apy+H*0.040,
+                'rgba(232,69,69,0.45)');
+    }
+
+    /* altitude dimension line */
+    if(apx>W*0.05&&apx<W*0.90){
+      var lineX=apx-H*0.06;
+      ctx.save(); ctx.setLineDash([3,3]);
+      ctx.strokeStyle='rgba(240,192,64,0.25)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(lineX,apy); ctx.lineTo(lineX,groundY); ctx.stroke();
+      ctx.restore();
+      ctx.font='bold 16px "Space Mono",monospace';
+      ctx.fillStyle='rgba(240,192,64,0.5)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(ALT_M+'m',lineX-22,(apy+groundY)/2);
+      ctx.textBaseline='alphabetic';
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<div class="dp">
+<p>You wonder, is it possible to somehow combine the strength of both sensors (stability from GPS and sharpness from laser) into a reliable altitude measurement for your aircraft?</p>
+<p>It turns out it's possible with a complementary filter. One of the simplest ways to do sensor fusion.</p>
+<p>The first thing to notice is that the GPS can be trusted for short term dynamics. Since it's stable if its measurement doesn't change we can say that the aircraft has not moved in the short term.</p>
+<p>On the contrary, the radar is trustworthy for longer term dynamics because if its average value changes over multiple timestamps it means that there is something underneath the aircraft.</p>
+</div>
+
+<!-- ══════════════════ DYNAMICS ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+<canvas id="dynCanvas" class="sq"></canvas>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('dynCanvas');
+  var ctx=cv.getContext('2d');
+  var W,H,dpr;
+  function resize(){
+    var r=cv.parentElement.getBoundingClientRect();
+    dpr=window.devicePixelRatio||1; W=r.width; H=Math.round(W*0.5625);
+    cv.width=W*dpr; cv.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  var LOOP_T=12;
+  var GPS_SIG=1.5, LAS_SIG=16;
+  var MAX_HIST=100, READ_DT=0.08;
+  var ROLL_WIN=18;
+  var ALT_BASE=130, ALT_AMP=45;
+
+  var t=0, lastRead=-999;
+  var gpsH=[], lasH=[], meanH=[];
+
+  function gauss(s){
+    var u=Math.random(), v=Math.random();
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  }
+
+  function rollingMean(arr,win){
+    if(!arr.length) return [];
+    var out=[];
+    for(var i=0;i<arr.length;i++){
+      var s=Math.max(0,i-win+1),sum=0;
+      for(var j=s;j<=i;j++) sum+=arr[j];
+      out.push(sum/(i-s+1));
+    }
+    return out;
+  }
+
+  function trueAlt(rawT){ return ALT_BASE+ALT_AMP*Math.sin(2*Math.PI*rawT/LOOP_T); }
+
+  /* ── plane (same as animation 1) ── */
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff',f2='rgba(74,158,255,0.75)',ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    ctx.fillStyle='rgba(232,69,69,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-s*0.55,s*0.65); ctx.lineTo(s*0.10,s*1.45); ctx.lineTo(s*0.75,s*0.65);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBeams(px,py,groundY){
+    var N=7, spread=W*0.09;
+    for(var b=0;b<N;b++){
+      var endX=px+(b/(N-1)-0.5)*2*spread;
+      var endY=groundY;
+      var grad=ctx.createLinearGradient(px,py+H*0.040,endX,endY);
+      grad.addColorStop(0,'rgba(232,69,69,0.55)');
+      grad.addColorStop(0.7,'rgba(232,69,69,0.15)');
+      grad.addColorStop(1,'rgba(232,69,69,0.0)');
+      ctx.save(); ctx.setLineDash([5,5]);
+      ctx.strokeStyle=grad; ctx.lineWidth=(b===3)?1.8:0.9;
+      ctx.beginPath(); ctx.moveTo(px,py+H*0.040); ctx.lineTo(endX,endY); ctx.stroke();
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(endX,endY,2.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(232,69,69,0.5)'; ctx.fill();
+    }
+  }
+
+  function plotLine(hist,color,lw,gx,gy,pw,ph,yLo,yHi){
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx=gx+(i/(MAX_HIST-1))*pw;
+      var hy=gy+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy=Math.max(gy,Math.min(gy+ph,hy));
+      if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+    }
+    ctx.stroke();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+    var rawT=t%LOOP_T;
+    var alt=trueAlt(rawT);
+    var groundY=H*0.72;
+    var altRange=ALT_BASE+ALT_AMP+30;
+    var apy=groundY-(alt/altRange)*(groundY-H*0.08);
+    var apx=W*0.38;
+
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      if(rawT<READ_DT*2){ gpsH.length=0; lasH.length=0; }
+      gpsH.push(alt+gauss(GPS_SIG));
+      lasH.push(alt+gauss(LAS_SIG));
+      if(gpsH.length>MAX_HIST){ gpsH.shift(); lasH.shift(); }
+      meanH=rollingMean(lasH,ROLL_WIN);
+    }
+
+    /* sky */
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710'); sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+
+    /* ground */
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='rgba(30,42,56,0.5)'; ctx.lineWidth=1;
+    var gsp=W*0.055,goff=(t*gsp*0.0)%gsp;
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+
+    /* altitude dashed line */
+    ctx.save(); ctx.setLineDash([3,4]);
+    ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,apy); ctx.lineTo(W,apy); ctx.stroke();
+    ctx.restore();
+
+    /* altitude label on plane */
+    ctx.font='bold 13px "Space Mono",monospace';
+    ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(alt.toFixed(0)+'m', apx+H*0.12, apy);
+    ctx.textBaseline='alphabetic';
+
+    drawBeams(apx,apy,groundY);
+    drawPlane(apx,apy);
+
+    /* ── right-side graph panel ── */
+    var gx=W*0.52, gy=H*0.04;
+    var gw=W*0.46, gh=H*0.90;
+    var mx=14,my=32,mr=8,mb=18;
+    var pw=gw-mx-mr, ph=gh-my-mb;
+    var yLo=ALT_BASE-ALT_AMP-30, yHi=ALT_BASE+ALT_AMP+30;
+
+    ctx.beginPath();
+    ctx.fillStyle='rgba(8,10,15,0.88)';
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,6); else ctx.rect(gx,gy,gw,gh);
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+
+    /* grid */
+    ctx.strokeStyle='rgba(42,55,75,0.35)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=4;g++){
+      var gy2=gy+my+(g/4)*ph;
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+      if(g===0||g===2||g===4){
+        ctx.font='13px "Space Mono",monospace';
+        ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+        ctx.fillText((yHi-(g/4)*(yHi-yLo)).toFixed(0)+'m',gx+mx-3,gy2);
+      }
+    }
+    ctx.textBaseline='alphabetic';
+
+    var ox=gx+mx, oy=gy+my;
+
+    /* altimeter (noisy, faint) */
+    plotLine(lasH,'rgba(232,69,69,0.45)',1.2,ox,oy,pw,ph,yLo,yHi);
+
+    /* GPS (orange, clean) */
+    plotLine(gpsH,'rgba(240,144,64,0.85)',2.2,ox,oy,pw,ph,yLo,yHi);
+
+    /* altimeter rolling mean (green, prominent) */
+    plotLine(meanH,'rgba(62,207,142,0.95)',3.0,ox,oy,pw,ph,yLo,yHi);
+
+    /* mean value badge — current mean value highlighted */
+    if(meanH.length>0){
+      var mv=meanH[meanH.length-1];
+      var mvy=oy+ph-((mv-yLo)/(yHi-yLo))*ph;
+      mvy=Math.max(oy,Math.min(oy+ph,mvy));
+      var mvx=ox+(meanH.length-1)/(MAX_HIST-1)*pw;
+      ctx.beginPath(); ctx.arc(mvx,mvy,5,0,Math.PI*2);
+      ctx.fillStyle='#3ecf8e'; ctx.fill();
+      ctx.font='bold 14px "Space Mono",monospace';
+      ctx.fillStyle='#3ecf8e'; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText('mean: '+mv.toFixed(0)+'m', gx+mx+pw+4, mvy);
+      ctx.textBaseline='alphabetic';
+    }
+
+    /* legend */
+    var ly=gy+12;
+    var items=[
+      {col:'rgba(240,144,64,0.9)',  lbl:'GPS'},
+      {col:'rgba(232,69,69,0.65)',  lbl:'Altimeter'},
+      {col:'rgba(62,207,142,0.95)', lbl:'Altimeter mean'},
+    ];
+    var lx=gx+mx;
+    for(var k=0;k<items.length;k++){
+      ctx.strokeStyle=items[k].col; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+18,ly); ctx.stroke();
+      ctx.font='bold 13px "Space Mono",monospace';
+      ctx.fillStyle=items[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(items[k].lbl,lx+24,ly);
+      ly+=H*0.065;
+    }
+    ctx.textBaseline='alphabetic';
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<div class="dp">
+<p>Ideally, you would like to keep the high frequency data from the GPS because it anchors the airplane in a reliable altitude measurement that doesn't fluctuate a lot.</p>
+<p>But, you would like to take advantage of the low frequency changes in the altimeter that signals obstacles on the ground and that provides a fresh measurement that is not affected by external circumstances like satellite positioning.</p>
+</div>
+
+<div class="dp">
+<p>Let's examine in detail how to do that.</p>
+<p>To use the short term dynamics of the GPS signal, we want to blend the signal towards the rate of change. If the change is high it means the airplane is rapidly gaining altitude and we want to capture that information. Thus, the reported altitude for short term dynamics is the previous altitude + the change of altitude.</p>
+<div class="eq-block">
+  <span class="eq-line">High-pass:&nbsp;&nbsp; <span class="eq-var">y</span> = <span class="eq-res">α</span> × <span class="eq-var">y_prev</span> + <span class="eq-res">α</span> × (<span class="eq-var">x</span> − <span class="eq-var">x_prev</span>)</span>
+</div>
+<p>α is a parameter to access how much the rate of change affect the reported altitude.</p>
+<p>Try to see how changing it affect the result.</p>
+</div>
+
+<!-- ══════════════════ HIGH-PASS ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+<div class="sim-controls">
+  <label>
+    <span class="ctrl-name">α</span>
+    <input type="range" id="hpAlpha" min="0" max="100" value="90">
+    <span class="ctrl-val" id="hpAlphaVal">0.90</span>
+  </label>
+</div>
+<canvas id="hpCanvas" class="sq"></canvas>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('hpCanvas');
+  var ctx=cv.getContext('2d');
+  var W,H;
+  function resize(){
+    var p=cv.parentElement;
+    W=p.clientWidth; H=Math.round(W*0.5625);
+    cv.width=W; cv.height=H;
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  var LOOP_T=10, ALT_M=150, GPS_NOISE=0.008, DRIFT_AMP=1;
+  var MAX_HIST=80, READ_DT=0.12;
+  var ALPHA=0.90;
+
+  var alphaEl=document.getElementById('hpAlpha');
+  var alphaValEl=document.getElementById('hpAlphaVal');
+  alphaEl.addEventListener('input',function(){
+    ALPHA=this.value/100;
+    alphaValEl.textContent=ALPHA.toFixed(2);
+    gpsDevH.length=0; hpDevH.length=0;
+    hpDevPrev=0; gpsDevPrev=null;
+  });
+
+  var t=0, lastRead=-999;
+  var gpsDevH=[], hpDevH=[];
+  var hpDevPrev=0, gpsDevPrev=null;
+  var pulses=[], lastPulse=0;
+
+  function gauss(s){
+    var u=Math.max(Math.random(),1e-10);
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
+  }
+
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff',f2='rgba(74,158,255,0.75)',ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSatellite(sx,sy){
+    ctx.fillStyle='rgba(180,200,240,0.85)';
+    ctx.strokeStyle='rgba(100,160,255,0.5)';
+    ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.rect(sx-10,sy-6,20,12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(74,158,255,0.45)';
+    ctx.strokeStyle='rgba(74,158,255,0.6)';
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.rect(sx-30,sy-4,16,8); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.rect(sx+14,sy-4,16,8); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(200,220,255,0.7)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(sx,sy+6); ctx.lineTo(sx+4,sy+14); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx+4,sy+14,5,Math.PI*0.9,Math.PI*2.1); ctx.stroke();
+    ctx.font='bold 12px "Space Mono",monospace';
+    ctx.fillStyle='rgba(180,210,255,0.55)'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText('SAT',sx,sy-20);
+    ctx.textBaseline='alphabetic';
+  }
+
+  function plotLine(hist,color,lw,ox,oy,pw,ph,yLo,yHi){
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx=ox+(i/(MAX_HIST-1))*pw;
+      var hy=oy+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy=Math.max(oy,Math.min(oy+ph,hy));
+      if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+    }
+    ctx.stroke();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+    var rawT=t%LOOP_T;
+    var drift=DRIFT_AMP*(rawT/LOOP_T);
+    var groundY=H*0.72;
+    var apx=W*0.38, satX=W*0.12, satY=H*0.12;
+    var apy=groundY-(ALT_M/(ALT_M+40))*(groundY-H*0.10);
+
+    /* record readings */
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      if(rawT<READ_DT*2){
+        gpsDevH.length=0; hpDevH.length=0;
+        hpDevPrev=0; gpsDevPrev=null;
+      }
+      var gpsDev=drift+gauss(GPS_NOISE);
+      gpsDevH.push(gpsDev);
+      var hp=(gpsDevPrev===null)?0:ALPHA*(hpDevPrev+(gpsDev-gpsDevPrev));
+      hpDevH.push(hp);
+      hpDevPrev=hp; gpsDevPrev=gpsDev;
+      if(gpsDevH.length>MAX_HIST){ gpsDevH.shift(); hpDevH.shift(); }
+    }
+
+    /* signal pulses */
+    if(t-lastPulse>0.6){ lastPulse=t; pulses.push({prog:0}); }
+    var dt=1/60;
+    for(var i=pulses.length-1;i>=0;i--){
+      pulses[i].prog+=dt*1.4;
+      if(pulses[i].prog>1) pulses.splice(i,1);
+    }
+
+    /* sky */
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710'); sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+
+    /* ground */
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+
+    /* dashed signal line */
+    ctx.save(); ctx.setLineDash([4,5]);
+    ctx.strokeStyle='rgba(240,200,0,0.12)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(apx,apy); ctx.lineTo(satX,satY); ctx.stroke();
+    ctx.restore();
+
+    /* pulses */
+    for(var i=0;i<pulses.length;i++){
+      var p=pulses[i].prog;
+      var px2=apx+(satX-apx)*p, py2=apy+(satY-apy)*p;
+      ctx.beginPath(); ctx.arc(px2,py2,3.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(240,200,0,'+(0.8*(1-p))+')'; ctx.fill();
+      ctx.beginPath(); ctx.arc(px2,py2,7,0,Math.PI*2);
+      ctx.fillStyle='rgba(240,200,0,'+(0.15*(1-p))+')'; ctx.fill();
+    }
+
+    drawSatellite(satX,satY);
+    drawPlane(apx,apy);
+
+    /* GPS drift label */
+    var curDev=gpsDevH.length>0?gpsDevH[gpsDevH.length-1]:0;
+    ctx.font='bold 13px "Space Mono",monospace';
+    ctx.fillStyle='rgba(240,200,0,0.85)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText('GPS drift: '+(curDev>=0?'+':'')+curDev.toFixed(2)+'m', apx-H*0.06, apy-H*0.03);
+    ctx.textBaseline='alphabetic';
+
+    /* ── right graph panel ── */
+    var gx=W*0.52, gy=H*0.04;
+    var gw=W*0.46, gh=H*0.90;
+    var mx=20,my=32,mr=8,mb=18;
+    var pw=gw-mx-mr, ph=gh-my-mb;
+    var yLo=-0.5, yHi=1.5;
+
+    ctx.beginPath();
+    ctx.fillStyle='rgba(8,10,15,0.88)';
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,6); else ctx.rect(gx,gy,gw,gh);
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+
+    /* grid and y-axis labels */
+    ctx.strokeStyle='rgba(42,55,75,0.35)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=4;g++){
+      var gy2=gy+my+(g/4)*ph;
+      var val=yHi-(g/4)*(yHi-yLo);
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+      ctx.font='13px "Space Mono",monospace';
+      ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+      ctx.fillText((val>=0?'+':'')+val.toFixed(1)+'m',gx+mx-3,gy2);
+    }
+    ctx.textBaseline='alphabetic';
+
+    /* zero reference line */
+    var zy=gy+my+ph-((-yLo)/(yHi-yLo))*ph;
+    ctx.save(); ctx.setLineDash([5,5]);
+    ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(gx+mx,zy); ctx.lineTo(gx+mx+pw,zy); ctx.stroke();
+    ctx.restore();
+
+    var ox=gx+mx, oy=gy+my;
+
+    /* raw GPS deviation (orange) */
+    plotLine(gpsDevH,'rgba(240,144,64,0.9)',2.2,ox,oy,pw,ph,yLo,yHi);
+
+    /* high-pass filtered deviation (green) */
+    plotLine(hpDevH,'rgba(62,207,142,0.95)',2.5,ox,oy,pw,ph,yLo,yHi);
+
+    /* current value dots */
+    if(gpsDevH.length>0){
+      var gvy=oy+ph-((gpsDevH[gpsDevH.length-1]-yLo)/(yHi-yLo))*ph;
+      ctx.beginPath(); ctx.arc(ox+(gpsDevH.length-1)/(MAX_HIST-1)*pw,Math.max(oy,Math.min(oy+ph,gvy)),4,0,Math.PI*2);
+      ctx.fillStyle='rgba(240,144,64,0.9)'; ctx.fill();
+    }
+    if(hpDevH.length>0){
+      var hvy=oy+ph-((hpDevH[hpDevH.length-1]-yLo)/(yHi-yLo))*ph;
+      ctx.beginPath(); ctx.arc(ox+(hpDevH.length-1)/(MAX_HIST-1)*pw,Math.max(oy,Math.min(oy+ph,hvy)),4,0,Math.PI*2);
+      ctx.fillStyle='rgba(62,207,142,0.95)'; ctx.fill();
+    }
+
+    /* legend */
+    var ly=gy+12;
+    var litems=[
+      {col:'rgba(255,255,255,0.35)', lbl:'True (no drift)', dash:true},
+      {col:'rgba(240,144,64,0.9)',   lbl:'GPS (drifting)',  dash:false},
+      {col:'rgba(62,207,142,0.95)',  lbl:'High-pass',       dash:false},
+    ];
+    var lx=gx+mx;
+    for(var k=0;k<litems.length;k++){
+      ctx.strokeStyle=litems[k].col; ctx.lineWidth=2;
+      if(litems[k].dash){ ctx.save(); ctx.setLineDash([4,4]); }
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+18,ly); ctx.stroke();
+      if(litems[k].dash) ctx.restore();
+      ctx.font='bold 13px "Space Mono",monospace';
+      ctx.fillStyle=litems[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(litems[k].lbl,lx+24,ly);
+      ly+=H*0.065;
+    }
+    ctx.textBaseline='alphabetic';
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<div class="dp">
+<p>This is called a high pass filter because high frequencies pass which keeps the short term dynamics of the signal.</p>
+<p>Now, for the radar altimeter we would like to keep the long term dynamics.</p>
+<p>The intuitive way of doing that is to have a weighted average between the new reading and the previous output.</p>
+<p>The true long term signal accumulates through the previous output while we nudge the new readings towards it.</p>
+<div class="eq-block">
+  <span class="eq-line">Low-pass:&nbsp;&nbsp; <span class="eq-var">y</span> = <span class="eq-res">α</span> × <span class="eq-var">y_prev</span> + (1 − <span class="eq-res">α</span>) × <span class="eq-var">x</span></span>
+</div>
+<p>An alpha (α) parameter close to 1 will smooth the signal because each new output y will be very close to the previous one.</p>
+<p>An alpha close to 0 will let the new measurement influence the output, effectively tracking the input more closely.</p>
+</div>
+
+<!-- ══════════════════ LOW-PASS ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+<div class="sim-controls">
+  <label>
+    <span class="ctrl-name">α</span>
+    <input type="range" id="lpAlpha" min="0" max="100" value="92">
+    <span class="ctrl-val" id="lpAlphaVal">0.92</span>
+  </label>
+</div>
+<canvas id="lpCanvas" class="sq"></canvas>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('lpCanvas');
+  var ctx=cv.getContext('2d');
+  var W,H;
+  function resize(){
+    var p=cv.parentElement;
+    W=p.clientWidth; H=Math.round(W*0.5625);
+    cv.width=W; cv.height=H;
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  var ALT_BASE=130, ALT_AMP=45, LOOP_T=12;
+  var LAS_SIG=12, MAX_HIST=90, READ_DT=0.10;
+  var ALPHA_LP=0.92;
+
+  var alphaElLP=document.getElementById('lpAlpha');
+  var alphaValElLP=document.getElementById('lpAlphaVal');
+  alphaElLP.addEventListener('input',function(){
+    ALPHA_LP=this.value/100;
+    alphaValElLP.textContent=ALPHA_LP.toFixed(2);
+    lasH2.length=0; lpH.length=0; lpPrev=null;
+  });
+
+  var t=0, lastRead=-999;
+  var lasH2=[], lpH=[];
+  var lpPrev=null;
+
+  function gauss(s){
+    var u=Math.max(Math.random(),1e-10);
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
+  }
+
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff',f2='rgba(74,158,255,0.75)',ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    ctx.fillStyle='rgba(232,69,69,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-s*0.55,s*0.65); ctx.lineTo(s*0.10,s*1.45); ctx.lineTo(s*0.75,s*0.65);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBeamsFlat(px,py,groundY){
+    var N=7, spread=W*0.09;
+    for(var b=0;b<N;b++){
+      var endX=px+(b/(N-1)-0.5)*2*spread, endY=groundY;
+      var grad=ctx.createLinearGradient(px,py+H*0.040,endX,endY);
+      grad.addColorStop(0,'rgba(232,69,69,0.55)');
+      grad.addColorStop(0.7,'rgba(232,69,69,0.15)');
+      grad.addColorStop(1,'rgba(232,69,69,0.0)');
+      ctx.save(); ctx.setLineDash([5,5]);
+      ctx.strokeStyle=grad; ctx.lineWidth=(b===3)?1.8:0.9;
+      ctx.beginPath(); ctx.moveTo(px,py+H*0.040); ctx.lineTo(endX,endY); ctx.stroke();
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(endX,endY,2.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(232,69,69,0.5)'; ctx.fill();
+    }
+  }
+
+  function plotLineLP(hist,color,lw,ox,oy,pw,ph,yLo,yHi){
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx=ox+(i/(MAX_HIST-1))*pw;
+      var hy=oy+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy=Math.max(oy,Math.min(oy+ph,hy));
+      if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+    }
+    ctx.stroke();
+  }
+
+  function drawLP(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+    var rawT=t%LOOP_T;
+    var alt=ALT_BASE+ALT_AMP*Math.sin(2*Math.PI*rawT/LOOP_T);
+    var groundY=H*0.75;
+    var apx=W*0.25;
+    var apy=groundY-(alt/(ALT_BASE+ALT_AMP+40))*(groundY-H*0.08);
+
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      if(rawT<READ_DT*2){ lasH2.length=0; lpH.length=0; lpPrev=null; }
+      var las=alt+gauss(LAS_SIG);
+      lasH2.push(las);
+      var lp=(lpPrev===null)?las:ALPHA_LP*lpPrev+(1-ALPHA_LP)*las;
+      lpH.push(lp);
+      lpPrev=lp;
+      if(lasH2.length>MAX_HIST){ lasH2.shift(); lpH.shift(); }
+    }
+
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710'); sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+
+    ctx.font='bold 13px "Space Mono",monospace';
+    ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(alt.toFixed(0)+'m', apx+H*0.12, apy);
+    ctx.textBaseline='alphabetic';
+
+    drawBeamsFlat(apx,apy,groundY);
+    drawPlane(apx,apy);
+
+    var gx=W*0.52, gy=H*0.04, gw=W*0.46, gh=H*0.90;
+    var mx=20,my=32,mr=8,mb=18, pw=gw-mx-mr, ph=gh-my-mb;
+    var yLo=ALT_BASE-ALT_AMP-30, yHi=ALT_BASE+ALT_AMP+30;
+
+    ctx.beginPath();
+    ctx.fillStyle='rgba(8,10,15,0.88)';
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,6); else ctx.rect(gx,gy,gw,gh);
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.strokeStyle='rgba(42,55,75,0.35)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=4;g++){
+      var gy2=gy+my+(g/4)*ph;
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+      if(g===0||g===2||g===4){
+        ctx.font='13px "Space Mono",monospace';
+        ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+        ctx.fillText((yHi-(g/4)*(yHi-yLo)).toFixed(0)+'m',gx+mx-3,gy2);
+      }
+    }
+    ctx.textBaseline='alphabetic';
+
+    var ox=gx+mx, oy=gy+my;
+    plotLineLP(lasH2,'rgba(232,69,69,0.4)',1.2,ox,oy,pw,ph,yLo,yHi);
+    plotLineLP(lpH,'rgba(62,207,142,0.95)',2.5,ox,oy,pw,ph,yLo,yHi);
+
+    if(lpH.length>0){
+      var lvy=oy+ph-((lpH[lpH.length-1]-yLo)/(yHi-yLo))*ph;
+      lvy=Math.max(oy,Math.min(oy+ph,lvy));
+      ctx.beginPath(); ctx.arc(ox+(lpH.length-1)/(MAX_HIST-1)*pw,lvy,5,0,Math.PI*2);
+      ctx.fillStyle='#3ecf8e'; ctx.fill();
+    }
+
+    var ly=gy+12, lx=gx+mx;
+    var litemsLP=[
+      {col:'rgba(232,69,69,0.65)',  lbl:'Altimeter (noisy)'},
+      {col:'rgba(62,207,142,0.95)', lbl:'Low-pass filtered'},
+    ];
+    for(var k=0;k<litemsLP.length;k++){
+      ctx.strokeStyle=litemsLP[k].col; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+18,ly); ctx.stroke();
+      ctx.font='bold 13px "Space Mono",monospace';
+      ctx.fillStyle=litemsLP[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(litemsLP[k].lbl,lx+24,ly);
+      ly+=H*0.065;
+    }
+    ctx.textBaseline='alphabetic';
+    requestAnimationFrame(drawLP);
+  }
+  drawLP();
+})();
+</script>
+
+<div class="dp">
+<p>This is a low pass filter because low frequencies pass which keeps the long term dynamics of the signal.</p>
+<p>Now, if we combine these two filters the output signal will have both short term and long term dynamics of an altitude input signal which make it complementary.</p>
+<div class="eq-block">
+  <span class="eq-line"><span class="eq-var">y</span> = <span class="eq-res">α</span> × (<span class="eq-var">y_prev</span> + (<span class="eq-var">x_gps</span> − <span class="eq-var">x_prev_gps</span>)) + (1 − <span class="eq-res">α</span>) × <span class="eq-var">x_radar</span></span>
+</div>
+</div>
+
+<!-- ══════════════════ COMPLEMENTARY FILTER ANIMATION ══════════════════ -->
+<div class="sim-wrap">
+<div class="sim-controls">
+  <label>
+    <span class="ctrl-name">α</span>
+    <input type="range" id="cfAlpha" min="0" max="100" value="97">
+    <span class="ctrl-val" id="cfAlphaVal">0.97</span>
+  </label>
+</div>
+<canvas id="cfCanvas" class="sq"></canvas>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('cfCanvas');
+  var ctx=cv.getContext('2d');
+  var W,H;
+  function resize(){
+    var p=cv.parentElement;
+    W=p.clientWidth; H=Math.round(W*0.5625);
+    cv.width=W; cv.height=H;
+  }
+  resize(); window.addEventListener('resize',resize);
+
+  var LOOP_T=10, ALT_M=150, TREE_H_M=42, TREE_SIG=0.055;
+  var GPS_SIG=2, LAS_SIG=12, MAX_HIST=90, READ_DT=0.10;
+  var ALPHA_CF=0.97;
+  var TREES=[{nx:0.40,rh:0.65},{nx:0.46,rh:0.82},{nx:0.52,rh:0.95},{nx:0.57,rh:1.00},{nx:0.62,rh:0.88},{nx:0.67,rh:0.72},{nx:0.73,rh:0.55}];
+
+  var alphaElCF=document.getElementById('cfAlpha');
+  var alphaValElCF=document.getElementById('cfAlphaVal');
+  alphaElCF.addEventListener('input',function(){
+    ALPHA_CF=this.value/100;
+    alphaValElCF.textContent=ALPHA_CF.toFixed(2);
+    gpsHcf.length=0; lasHcf.length=0; cfH.length=0;
+    cfPrev=null; gpsPrev=null;
+  });
+
+  var t=0, lastRead=-999;
+  var gpsHcf=[], lasHcf=[], cfH=[];
+  var cfPrev=null, gpsPrev=null;
+  var pulses=[], lastPulse=0;
+
+  function gauss(s){
+    var u=Math.max(Math.random(),1e-10);
+    return s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
+  }
+
+  function treeH(nx){
+    var best=0;
+    for(var k=0;k<TREES.length;k++){
+      var d=nx-TREES[k].nx;
+      var h=TREE_H_M*TREES[k].rh*Math.exp(-d*d/(TREE_SIG*TREE_SIG));
+      if(h>best) best=h;
+    }
+    return best;
+  }
+
+  function treeTopYcf(x,groundY){
+    var best=groundY;
+    for(var k=0;k<TREES.length;k++){
+      var tr=TREES[k], cx=tr.nx*W, tH=H*0.21*tr.rh;
+      var trunkH=tH*0.30, cH=tH*0.80, cW=W*0.036;
+      var cbY=groundY-trunkH, ctY=groundY-trunkH-cH;
+      var dx=Math.abs(x-cx);
+      if(dx<cW){ var sy=ctY+(cbY-ctY)*(dx/cW); if(sy<best) best=sy; }
+    }
+    return best;
+  }
+
+  function drawPlane(px,py){
+    var s=H*0.038;
+    var f1='#4a9eff',f2='rgba(74,158,255,0.75)',ol='rgba(200,230,255,0.2)';
+    ctx.save(); ctx.translate(px,py);
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*0.6,s*0.6); ctx.lineTo(-s*0.3,s*0.65);
+    ctx.bezierCurveTo(-s*1.2,s*0.9,-s*2.2,s*2.8,-s*2.0,s*3.2);
+    ctx.bezierCurveTo(-s*1.8,s*3.5,-s*0.8,s*3.5,-s*0.4,s*3.1);
+    ctx.bezierCurveTo(s*0.1,s*2.5,s*0.5,s*1.5,s*0.5,s*0.9);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s*0.8,s*3.25,s*0.52,s*0.20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(s*3.0,-s*0.35);
+    ctx.bezierCurveTo(s*3.7,-s*0.35,s*3.7,s*0.65,s*3.0,s*0.65);
+    ctx.bezierCurveTo(s*2.0,s*0.75,s*0.8,s*0.75,-s*0.5,s*0.65);
+    ctx.bezierCurveTo(-s*1.5,s*0.55,-s*2.5,s*0.35,-s*3.0,s*0.15);
+    ctx.bezierCurveTo(-s*3.5,0,-s*3.5,-s*0.6,-s*3.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.0,-s*0.95,-s*0.5,-s*1.05,s*1.0,-s*1.0);
+    ctx.bezierCurveTo(s*2.0,-s*0.95,s*2.8,-s*0.6,s*3.0,-s*0.35);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2;
+    ctx.beginPath();
+    ctx.moveTo(-s*2.0,-s*0.65);
+    ctx.bezierCurveTo(-s*2.2,-s*1.5,-s*2.6,-s*2.1,-s*2.9,-s*2.0);
+    ctx.bezierCurveTo(-s*3.1,-s*1.8,-s*3.1,-s*1.0,-s*3.0,-s*0.65);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f1; ctx.strokeStyle=ol; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(s*3.5,s*0.15,s*0.22,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=f2; ctx.strokeStyle=ol; ctx.lineWidth=1;
+    ctx.save(); ctx.translate(s*3.5,s*0.15);
+    ctx.beginPath(); ctx.ellipse(0,-s*1.05,s*0.20,s*0.95,0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,s*1.05,s*0.20,s*0.95,-0.15,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='rgba(240,200,0,0.95)';
+    ctx.fillRect(s*0.2,-s*1.05,s*0.16,s*0.65);
+    ctx.beginPath(); ctx.arc(s*0.28,-s*1.05,s*0.22,Math.PI,0); ctx.fill();
+    ctx.fillStyle='rgba(232,69,69,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-s*0.55,s*0.65); ctx.lineTo(s*0.10,s*1.45); ctx.lineTo(s*0.75,s*0.65);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSatellite(sx,sy){
+    ctx.fillStyle='rgba(180,200,240,0.85)';
+    ctx.strokeStyle='rgba(100,160,255,0.5)'; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.rect(sx-10,sy-6,20,12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(74,158,255,0.45)';
+    ctx.strokeStyle='rgba(74,158,255,0.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.rect(sx-30,sy-4,16,8); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.rect(sx+14,sy-4,16,8); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(200,220,255,0.7)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(sx,sy+6); ctx.lineTo(sx+4,sy+14); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx+4,sy+14,5,Math.PI*0.9,Math.PI*2.1); ctx.stroke();
+    ctx.font='bold 12px "Space Mono",monospace';
+    ctx.fillStyle='rgba(180,210,255,0.55)'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText('SAT',sx,sy-20); ctx.textBaseline='alphabetic';
+  }
+
+  function drawBeamsCF(px,py,groundY){
+    var N=7, spread=W*0.09;
+    for(var b=0;b<N;b++){
+      var endX=px+(b/(N-1)-0.5)*2*spread;
+      var endY=treeTopYcf(endX,groundY);
+      var grad=ctx.createLinearGradient(px,py+H*0.040,endX,endY);
+      grad.addColorStop(0,'rgba(232,69,69,0.55)');
+      grad.addColorStop(0.7,'rgba(232,69,69,0.15)');
+      grad.addColorStop(1,'rgba(232,69,69,0.0)');
+      ctx.save(); ctx.setLineDash([5,5]);
+      ctx.strokeStyle=grad; ctx.lineWidth=(b===3)?1.8:0.9;
+      ctx.beginPath(); ctx.moveTo(px,py+H*0.040); ctx.lineTo(endX,endY); ctx.stroke();
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(endX,endY,2.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(232,69,69,0.5)'; ctx.fill();
+    }
+  }
+
+  function drawForest(groundY){
+    for(var k=0;k<TREES.length;k++){
+      var tr=TREES[k], cx=tr.nx*W, tH=H*0.21*tr.rh;
+      var trunkH=tH*0.30, trunkW=W*0.007, cH=tH*0.80, cW=W*0.036;
+      ctx.fillStyle='#5a3820';
+      ctx.fillRect(cx-trunkW,groundY-trunkH,trunkW*2,trunkH);
+      ctx.fillStyle='rgba(30,80,44,0.92)';
+      ctx.beginPath();
+      ctx.moveTo(cx,groundY-trunkH-cH);
+      ctx.lineTo(cx+cW,groundY-trunkH);
+      ctx.lineTo(cx-cW,groundY-trunkH);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle='rgba(62,207,142,0.15)'; ctx.lineWidth=0.7; ctx.stroke();
+    }
+  }
+
+  function plotLineCF(hist,color,lw,ox,oy,pw,ph,yLo,yHi){
+    if(hist.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.beginPath();
+    for(var i=0;i<hist.length;i++){
+      var hx=ox+(i/(MAX_HIST-1))*pw;
+      var hy=oy+ph-((hist[i]-yLo)/(yHi-yLo))*ph;
+      hy=Math.max(oy,Math.min(oy+ph,hy));
+      if(i===0) ctx.moveTo(hx,hy); else ctx.lineTo(hx,hy);
+    }
+    ctx.stroke();
+  }
+
+  function drawCF(){
+    ctx.clearRect(0,0,W,H);
+    t+=1/60;
+    var rawT=t%LOOP_T;
+    var worldX=rawT/LOOP_T;
+    var apx=(worldX*1.3-0.15)*W;
+    var groundY=H*0.60;
+    var apy=groundY-(ALT_M/(ALT_M+30))*(groundY-H*0.08);
+    var satX=W*0.06, satY=H*0.10;
+
+    if(t-lastRead>=READ_DT){
+      lastRead=t;
+      if(rawT<READ_DT*2){ gpsHcf.length=0; lasHcf.length=0; cfH.length=0; cfPrev=null; gpsPrev=null; }
+      var gps=ALT_M+gauss(GPS_SIG);
+      var th=treeH(apx/W);
+      var las=ALT_M-th+gauss(LAS_SIG);
+      gpsHcf.push(gps);
+      lasHcf.push(las);
+      var cf=(cfPrev===null)?las:ALPHA_CF*(cfPrev+(gps-gpsPrev))+(1-ALPHA_CF)*las;
+      cfH.push(cf);
+      cfPrev=cf; gpsPrev=gps;
+      if(gpsHcf.length>MAX_HIST){ gpsHcf.shift(); lasHcf.shift(); cfH.shift(); }
+    }
+
+    if(t-lastPulse>0.6&&apx>0&&apx<W){ lastPulse=t; pulses.push({prog:0}); }
+    var dt=1/60;
+    for(var i=pulses.length-1;i>=0;i--){
+      pulses[i].prog+=dt*1.4;
+      if(pulses[i].prog>1) pulses.splice(i,1);
+    }
+
+    var sky=ctx.createLinearGradient(0,0,0,groundY);
+    sky.addColorStop(0,'#040710'); sky.addColorStop(1,'#0a1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,groundY+2);
+    ctx.fillStyle='#0d1218'; ctx.fillRect(0,groundY,W,H-groundY);
+    ctx.strokeStyle='rgba(30,42,56,0.5)'; ctx.lineWidth=1;
+    var gsp=W*0.055, goff=(t*gsp*0.35)%gsp;
+    for(var gx2=-gsp+goff;gx2<W+gsp;gx2+=gsp){
+      ctx.beginPath(); ctx.moveTo(gx2,groundY); ctx.lineTo(gx2-22,H); ctx.stroke();
+    }
+    ctx.strokeStyle='#222a36'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+
+    drawForest(groundY);
+
+    if(apx>0&&apx<W){
+      ctx.save(); ctx.setLineDash([4,5]);
+      ctx.strokeStyle='rgba(240,200,0,0.12)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(apx,apy); ctx.lineTo(satX,satY); ctx.stroke();
+      ctx.restore();
+      for(var i=0;i<pulses.length;i++){
+        var p=pulses[i].prog;
+        var px2=apx+(satX-apx)*p, py2=apy+(satY-apy)*p;
+        ctx.beginPath(); ctx.arc(px2,py2,3.5,0,Math.PI*2);
+        ctx.fillStyle='rgba(240,200,0,'+(0.8*(1-p))+')'; ctx.fill();
+        ctx.beginPath(); ctx.arc(px2,py2,7,0,Math.PI*2);
+        ctx.fillStyle='rgba(240,200,0,'+(0.15*(1-p))+')'; ctx.fill();
+      }
+    }
+
+    drawSatellite(satX,satY);
+    if(apx>-80&&apx<W+80){ drawBeamsCF(apx,apy,groundY); drawPlane(apx,apy); }
+
+    /* ── bottom graph panel (ground strip) ── */
+    var gx=W*0.01, gy=groundY+2, gw=W*0.98, gh=H-groundY-4;
+    var mx=36,my=20,mr=6,mb=4, pw=gw-mx-mr, ph=gh-my-mb;
+    var yLo=ALT_M-TREE_H_M-20, yHi=ALT_M+20;
+
+    ctx.beginPath();
+    ctx.fillStyle='rgba(8,10,15,0.92)';
+    if(ctx.roundRect) ctx.roundRect(gx,gy,gw,gh,4); else ctx.rect(gx,gy,gw,gh);
+    ctx.fill();
+    ctx.strokeStyle='rgba(42,55,75,0.9)'; ctx.lineWidth=1; ctx.stroke();
+
+    /* grid */
+    ctx.strokeStyle='rgba(42,55,75,0.35)'; ctx.lineWidth=0.5;
+    for(var g=0;g<=3;g++){
+      var gy2=gy+my+(g/3)*ph;
+      ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
+      ctx.font='11px "Space Mono",monospace';
+      ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+      ctx.fillText((yHi-(g/3)*(yHi-yLo)).toFixed(0)+'m',gx+mx-3,gy2);
+    }
+    ctx.textBaseline='alphabetic';
+
+    var ox=gx+mx, oy=gy+my;
+    plotLineCF(lasHcf,'rgba(232,69,69,0.4)',1.2,ox,oy,pw,ph,yLo,yHi);
+    plotLineCF(gpsHcf,'rgba(240,144,64,0.9)',2.0,ox,oy,pw,ph,yLo,yHi);
+    plotLineCF(cfH,'rgba(62,207,142,0.95)',2.5,ox,oy,pw,ph,yLo,yHi);
+
+    if(cfH.length>0){
+      var cvy=oy+ph-((cfH[cfH.length-1]-yLo)/(yHi-yLo))*ph;
+      cvy=Math.max(oy,Math.min(oy+ph,cvy));
+      ctx.beginPath(); ctx.arc(ox+(cfH.length-1)/(MAX_HIST-1)*pw,cvy,5,0,Math.PI*2);
+      ctx.fillStyle='#3ecf8e'; ctx.fill();
+    }
+
+    /* horizontal legend */
+    var litemsCF=[
+      {col:'rgba(240,144,64,0.9)',   lbl:'GPS'},
+      {col:'rgba(232,69,69,0.65)',   lbl:'Radar altimeter'},
+      {col:'rgba(62,207,142,0.95)',  lbl:'Complementary'},
+    ];
+    var lx=gx+mx, ly=gy+10;
+    var lslot=pw/litemsCF.length;
+    for(var k=0;k<litemsCF.length;k++){
+      var ilx=gx+mx+k*lslot;
+      ctx.strokeStyle=litemsCF[k].col; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(ilx,ly); ctx.lineTo(ilx+14,ly); ctx.stroke();
+      ctx.font='bold 11px "Space Mono",monospace';
+      ctx.fillStyle=litemsCF[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(litemsCF[k].lbl,ilx+18,ly);
+    }
+    ctx.textBaseline='alphabetic';
+
+    requestAnimationFrame(drawCF);
+  }
+  drawCF();
+})();
+</script>
