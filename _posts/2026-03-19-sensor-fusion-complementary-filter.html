@@ -1,5 +1,5 @@
 ---
-title: "Sensor Fusion — Complementary Filter"
+title: "Simple Sensor Fusion with Complementary Filter"
 date: 2026-03-19 10:00:00 +0000
 categories: [Robotics, Sensors]
 tags: [robotics, sensor-fusion, filtering, sensors]
@@ -121,19 +121,21 @@ canvas.grab:active { cursor: grabbing; }
 
 <div class="dp">
 <p>Let's say you are on an airplane traveling at low altitude.</p>
-<p>You are lucky and have at your disposal two sensors that give you the altitude.</p>
-<p>A <strong>GPS</strong> which reports the plane's altitude relative to mean sea level.</p>
-<p>A downward-facing <strong>laser altimeter</strong> which reports the airplane's height above ground.</p>
-<p>You notice that the GPS gives you a stable measurement that doesn't fluctuate much. However, on the flip side, when there is something on the ground like a tree the altitude doesn't change much. Also, you notice there is a positioning error accumulating over time because of satellite conditions.</p>
+<p>Ground hazards concern you. Thus, you must pay attention to the ground clearance.</p>
+<p>You are lucky since the airplane is equipped with two sensors: a <strong>GPS</strong> and a <strong>laser altimeter</strong>.</p>
+<p>The first sensor, the GPS, reports the plane's altitude relative to mean sea level.</p>
+<p>It helps knowing when the airplane has changed altitude, but it is blind to ground obstacles.</p>
+<p>The altitude measurement is stable and looks relatively plausible for an airplane.</p>
+<p>But there are sometimes jumps in altitude that are probably due to satellite conditions.</p>
 </div>
 
-<!-- ══════════════════ GPS DRIFT ANIMATION ══════════════════ -->
+<!-- ══════════════════ GPS JUMP ANIMATION ══════════════════ -->
 <div class="sim-wrap">
-<canvas id="gpsDriftCanvas" class="sq"></canvas>
+<canvas id="gpsJumpCanvas" class="sq"></canvas>
 </div>
 <script>
 (function(){
-  var cv=document.getElementById('gpsDriftCanvas');
+  var cv=document.getElementById('gpsJumpCanvas');
   var ctx=cv.getContext('2d');
   var W,H;
   function resize(){
@@ -145,7 +147,9 @@ canvas.grab:active { cursor: grabbing; }
 
   var LOOP_T=10;
   var ALT_M=150;
-  var GPS_NOISE=0.08, DRIFT_AMP=1;
+  var GPS_NOISE=0.08;
+  var JUMP_TIME=0.4; /* fraction of LOOP_T when the jump happens */
+  var JUMP_AMP=3;    /* metres – sudden step up */
   var MAX_HIST=80, READ_DT=0.12;
 
   var t=0, lastRead=-999;
@@ -241,7 +245,7 @@ canvas.grab:active { cursor: grabbing; }
     ctx.clearRect(0,0,W,H);
     t+=1/60;
     var rawT=t%LOOP_T;
-    var drift=DRIFT_AMP*(rawT/LOOP_T);
+    var jump=(rawT/LOOP_T>=JUMP_TIME)?JUMP_AMP:0;
     var groundY=H*0.72;
     var apx=W*0.38;
     var apy=groundY-(ALT_M/(ALT_M+40))*(groundY-H*0.10);
@@ -252,7 +256,7 @@ canvas.grab:active { cursor: grabbing; }
       lastRead=t;
       if(rawT<READ_DT*2){ gpsH.length=0; trueH.length=0; }
       trueH.push(ALT_M);
-      gpsH.push(ALT_M+drift+gauss(GPS_NOISE));
+      gpsH.push(ALT_M+jump+gauss(GPS_NOISE));
       if(gpsH.length>MAX_HIST){ gpsH.shift(); trueH.shift(); }
     }
 
@@ -293,15 +297,17 @@ canvas.grab:active { cursor: grabbing; }
     drawSatellite(satX,satY);
     drawPlane(apx,apy);
 
-    /* GPS drift label next to plane */
+    /* GPS jump label next to plane */
     var curGps=gpsH.length>0?gpsH[gpsH.length-1]:ALT_M;
     var err=(curGps-ALT_M);
-    var errCol=Math.abs(err)<4?'rgba(62,207,142,0.8)':Math.abs(err)<10?'rgba(240,192,64,0.9)':'rgba(232,69,69,0.9)';
+    var errCol=Math.abs(err)<0.5?'rgba(62,207,142,0.8)':'rgba(232,69,69,0.9)';
     ctx.font='bold 13px "Space Mono",monospace';
     ctx.fillStyle='rgba(240,200,0,0.85)'; ctx.textAlign='right'; ctx.textBaseline='middle';
     ctx.fillText('GPS: '+curGps.toFixed(0)+'m', apx-H*0.06, apy-H*0.03);
-    ctx.fillStyle=errCol; ctx.textAlign='right';
-    ctx.fillText('err: '+(err>=0?'+':'')+err.toFixed(1)+'m', apx-H*0.06, apy+H*0.03);
+    if(Math.abs(err)>0.5){
+      ctx.fillStyle=errCol; ctx.textAlign='right';
+      ctx.fillText('jump: '+(err>=0?'+':'')+err.toFixed(1)+'m', apx-H*0.06, apy+H*0.03);
+    }
     ctx.textBaseline='alphabetic';
 
     /* ── right graph panel ── */
@@ -334,14 +340,14 @@ canvas.grab:active { cursor: grabbing; }
     /* true altitude (dashed white reference) */
     plotLine(trueH,'rgba(255,255,255,0.2)',1,ox,oy,pw,ph,yLo,yHi);
 
-    /* GPS drifting line */
+    /* GPS line */
     plotLine(gpsH,'rgba(240,144,64,0.9)',2.2,ox,oy,pw,ph,yLo,yHi);
 
     /* legend */
     var ly=gy+12;
     var litems=[
       {col:'rgba(255,255,255,0.4)', lbl:'True altitude'},
-      {col:'rgba(240,144,64,0.9)',  lbl:'GPS (drifting)'},
+      {col:'rgba(240,144,64,0.9)',  lbl:'GPS'},
     ];
     var lx=gx+mx;
     for(var k=0;k<litems.length;k++){
@@ -363,10 +369,13 @@ canvas.grab:active { cursor: grabbing; }
 </script>
 
 <div class="dp">
-<p>The laser altimeter gives a very noisy measurement that fluctuates a lot but you notice it does report a lower altitude when there is something under the aircraft.</p>
-<p>You are not completely satisfied with either of those sensors.</p>
-<p>The GPS gives you a stable measurement but it doesn't report a change of altitude when there are obstacles on the ground which could be dangerous.</p>
-<p>The laser does perceive them but gives an altitude that varies too much to be physically plausible for an aircraft.</p>
+<p>The second sensor, the laser altimeter, reports the airplane's height above ground.</p>
+<p>You think to yourself that this sensor will be a lot more useful, since it actually perceives the ground.</p>
+<p>Unfortunately, you notice that it gives a very noisy measurement.</p>
+<p>The height fluctuates a lot, but a drop in ground clearance is still noticeable when the airplane passes over a tree.</p>
+<p>You are not completely satisfied with either of these sensors.</p>
+<p>The GPS gives you a stable measurement, but it doesn't report a change of clearance when there are obstacles on the ground, which could be dangerous.</p>
+<p>The laser altimeter does perceive them, but gives a clearance that varies too much to be physically plausible for an aircraft.</p>
 </div>
 
 <!-- ══════════════════ SENSOR ANIMATION ══════════════════ -->
@@ -677,10 +686,10 @@ canvas.grab:active { cursor: grabbing; }
 </script>
 
 <div class="dp">
-<p>You wonder, is it possible to somehow combine the strength of both sensors (stability from GPS and sharpness from laser) into a reliable altitude measurement for your aircraft?</p>
-<p>It turns out it's possible with a complementary filter. One of the simplest ways to do sensor fusion.</p>
-<p>The first thing to notice is that the GPS can be trusted for short term dynamics. Since it's stable if its measurement doesn't change we can say that the aircraft has not moved in the short term.</p>
-<p>On the contrary, the radar is trustworthy for longer term dynamics because if its average value changes over multiple timestamps it means that there is something underneath the aircraft.</p>
+<p>You wonder, is it possible to somehow combine the strengths of both sensors (stability from the GPS and sharpness from the laser altimeter) into a reliable altitude measurement for your aircraft?</p>
+<p>It turns out it is possible with a <strong>complementary filter</strong> — one of the simplest ways to do sensor fusion.</p>
+<p>The first thing to notice is that the GPS can be trusted for <strong>short-term dynamics</strong>. Since it is stable, if its measurement doesn't change, we can say that the aircraft has not moved in the short term.</p>
+<p>On the contrary, the laser altimeter is trustworthy for <strong>longer-term dynamics</strong> because if its average value changes over multiple timestamps, it means that there is something underneath the aircraft.</p>
 </div>
 
 <!-- ══════════════════ DYNAMICS ANIMATION ══════════════════ -->
@@ -921,13 +930,13 @@ canvas.grab:active { cursor: grabbing; }
 </script>
 
 <div class="dp">
-<p>Ideally, you would like to keep the high frequency data from the GPS because it anchors the airplane in a reliable altitude measurement that doesn't fluctuate a lot.</p>
-<p>But, you would like to take advantage of the low frequency changes in the altimeter that signals obstacles on the ground and that provides a fresh measurement that is not affected by external circumstances like satellite positioning.</p>
+<p>Ideally, you would like to keep the <strong>high-frequency</strong> data from the GPS because it anchors the airplane to a reliable altitude measurement that doesn't fluctuate a lot.</p>
+<p>But you would also like to take advantage of the <strong>low-frequency</strong> changes in the laser altimeter that signal obstacles on the ground and that provide a fresh measurement not affected by external circumstances like satellite positioning.</p>
 </div>
 
 <div class="dp">
 <p>Let's examine in detail how to do that.</p>
-<p>To use the short term dynamics of the GPS signal, we want to blend the signal towards the rate of change. If the change is high it means the airplane is rapidly gaining altitude and we want to capture that information.</p>
+<p>To use the short-term dynamics of the GPS signal, we want to blend the signal towards the <strong>rate of change</strong>. If the change is high, it means the airplane is rapidly gaining altitude and we want to capture that information.</p>
 </div>
 
 <!-- ══════════════════ SHORT-TERM DYNAMICS ANIMATION ══════════════════ -->
@@ -1262,12 +1271,19 @@ canvas.grab:active { cursor: grabbing; }
 </script>
 
 <div class="dp">
-<p>Thus, the reported altitude for short term dynamics is the previous altitude + the change of altitude.</p>
+<p>Thus, the reported altitude for short-term dynamics is the previous altitude plus the change of altitude.</p>
 <div class="eq-block">
   <span class="eq-line">High-pass:&nbsp;&nbsp; <span class="eq-var">y</span> = <span class="eq-res">α</span> × <span class="eq-var">y_prev</span> + <span class="eq-res">α</span> × (<span class="eq-var">x</span> − <span class="eq-var">x_prev</span>)</span>
 </div>
-<p>α is a parameter to access how much the rate of change affect the reported altitude.</p>
-<p>Try to see how changing it affect the result.</p>
+<p><strong>Where:</strong></p>
+<ul>
+<li><span class="eq-var">y</span> — filtered altitude (output)</li>
+<li><span class="eq-var">y_prev</span> — filtered altitude at the previous time step</li>
+<li><span class="eq-var">x</span>, <span class="eq-var">x_prev</span> — current and previous GPS reading</li>
+<li><span class="eq-res">α</span> — smoothing factor between 0 and 1</li>
+</ul>
+<p>α is a parameter to adjust how much the rate of change affects the reported altitude.</p>
+<p>Try to see how changing it affects the result.</p>
 </div>
 
 <!-- ══════════════════ HIGH-PASS ANIMATION ══════════════════ -->
@@ -1275,8 +1291,8 @@ canvas.grab:active { cursor: grabbing; }
 <div class="sim-controls">
   <label>
     <span class="ctrl-name">α</span>
-    <input type="range" id="hpAlpha" min="0" max="100" value="90">
-    <span class="ctrl-val" id="hpAlphaVal">0.90</span>
+    <input type="range" id="hpAlpha" min="0" max="100" value="97">
+    <span class="ctrl-val" id="hpAlphaVal">0.97</span>
   </label>
 </div>
 <canvas id="hpCanvas" class="sq"></canvas>
@@ -1293,22 +1309,24 @@ canvas.grab:active { cursor: grabbing; }
   }
   resize(); window.addEventListener('resize',resize);
 
-  var LOOP_T=10, ALT_M=150, GPS_NOISE=0.008, DRIFT_AMP=1;
-  var MAX_HIST=80, READ_DT=0.12;
-  var ALPHA=0.90;
+  var LOOP_T=10, ALT_BASE=130, ALT_CLIMB=30, GPS_NOISE=0.3;
+  var MAX_HIST=100, READ_DT=0.10;
+  var ALPHA=0.97;
 
   var alphaEl=document.getElementById('hpAlpha');
   var alphaValEl=document.getElementById('hpAlphaVal');
   alphaEl.addEventListener('input',function(){
     ALPHA=this.value/100;
     alphaValEl.textContent=ALPHA.toFixed(2);
-    gpsDevH.length=0; hpDevH.length=0;
-    hpDevPrev=0; gpsDevPrev=null;
+    gpsH.length=0; hpH.length=0; trueH.length=0;
+    hpPrev=null; gpsPrev=null;
+    t=0; lastRead=-999;
+    pulses.length=0; lastPulse=0;
   });
 
   var t=0, lastRead=-999;
-  var gpsDevH=[], hpDevH=[];
-  var hpDevPrev=0, gpsDevPrev=null;
+  var gpsH=[], hpH=[], trueH=[];
+  var hpPrev=null, gpsPrev=null;
   var pulses=[], lastPulse=0;
 
   function gauss(s){
@@ -1393,24 +1411,45 @@ canvas.grab:active { cursor: grabbing; }
     ctx.clearRect(0,0,W,H);
     t+=1/60;
     var rawT=t%LOOP_T;
-    var drift=DRIFT_AMP*(rawT/LOOP_T);
+    var frac=rawT/LOOP_T;
+    var trueAlt=ALT_BASE+ALT_CLIMB*frac;
+
     var groundY=H*0.72;
+    var skyTop=H*0.10;
     var apx=W*0.38, satX=W*0.12, satY=H*0.12;
-    var apy=groundY-(ALT_M/(ALT_M+40))*(groundY-H*0.10);
+    var altFrac=(trueAlt-ALT_BASE+5)/(ALT_CLIMB+10);
+    var apy=groundY-(0.30+0.50*altFrac)*(groundY-skyTop);
 
     /* record readings */
     if(t-lastRead>=READ_DT){
       lastRead=t;
       if(rawT<READ_DT*2){
-        gpsDevH.length=0; hpDevH.length=0;
-        hpDevPrev=0; gpsDevPrev=null;
+        gpsH.length=0; hpH.length=0; trueH.length=0;
+        hpPrev=null; gpsPrev=null;
       }
-      var gpsDev=drift+gauss(GPS_NOISE);
-      gpsDevH.push(gpsDev);
-      var hp=(gpsDevPrev===null)?0:ALPHA*(hpDevPrev+(gpsDev-gpsDevPrev));
-      hpDevH.push(hp);
-      hpDevPrev=hp; gpsDevPrev=gpsDev;
-      if(gpsDevH.length>MAX_HIST){ gpsDevH.shift(); hpDevH.shift(); }
+      var gpsVal=trueAlt+gauss(GPS_NOISE);
+      gpsH.push(gpsVal);
+      trueH.push(trueAlt);
+      /*
+       * High-pass contribution (from the complementary filter equation):
+       *   y = y_prev  +  α · (x − x_prev)
+       *
+       * Each GPS change is scaled by α before being accumulated.
+       * α = 1  →  keeps 100 % of every GPS change (tracks exactly).
+       * α = 0  →  ignores all GPS changes (stays at initial value).
+       *
+       * In the full complementary filter the (1−α)·laser term
+       * re-anchors this to the true altitude.
+       */
+      var hp;
+      if(gpsPrev===null){
+        hp=gpsVal;
+      } else {
+        hp=hpPrev + ALPHA*(gpsVal - gpsPrev);
+      }
+      hpH.push(hp);
+      hpPrev=hp; gpsPrev=gpsVal;
+      if(gpsH.length>MAX_HIST){ gpsH.shift(); hpH.shift(); trueH.shift(); }
     }
 
     /* signal pulses */
@@ -1450,11 +1489,11 @@ canvas.grab:active { cursor: grabbing; }
     drawSatellite(satX,satY);
     drawPlane(apx,apy);
 
-    /* GPS drift label */
-    var curDev=gpsDevH.length>0?gpsDevH[gpsDevH.length-1]:0;
+    /* GPS altitude label */
+    var curGps=gpsH.length>0?gpsH[gpsH.length-1]:trueAlt;
     ctx.font='bold 13px "Space Mono",monospace';
     ctx.fillStyle='rgba(240,200,0,0.85)'; ctx.textAlign='right'; ctx.textBaseline='middle';
-    ctx.fillText('GPS drift: '+(curDev>=0?'+':'')+curDev.toFixed(2)+'m', apx-H*0.06, apy-H*0.03);
+    ctx.fillText('GPS: '+curGps.toFixed(0)+'m', apx-H*0.06, apy-H*0.03);
     ctx.textBaseline='alphabetic';
 
     /* ── right graph panel ── */
@@ -1462,7 +1501,7 @@ canvas.grab:active { cursor: grabbing; }
     var gw=W*0.46, gh=H*0.90;
     var mx=20,my=32,mr=8,mb=18;
     var pw=gw-mx-mr, ph=gh-my-mb;
-    var yLo=-0.5, yHi=1.5;
+    var yLo=ALT_BASE-15, yHi=ALT_BASE+ALT_CLIMB+10;
 
     ctx.beginPath();
     ctx.fillStyle='rgba(8,10,15,0.88)';
@@ -1478,43 +1517,39 @@ canvas.grab:active { cursor: grabbing; }
       ctx.beginPath(); ctx.moveTo(gx+mx,gy2); ctx.lineTo(gx+mx+pw,gy2); ctx.stroke();
       ctx.font='13px "Space Mono",monospace';
       ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.textAlign='right'; ctx.textBaseline='middle';
-      ctx.fillText((val>=0?'+':'')+val.toFixed(1)+'m',gx+mx-3,gy2);
+      ctx.fillText(val.toFixed(0)+'m',gx+mx-3,gy2);
     }
     ctx.textBaseline='alphabetic';
 
-    /* zero reference line */
-    var zy=gy+my+ph-((-yLo)/(yHi-yLo))*ph;
-    ctx.save(); ctx.setLineDash([5,5]);
-    ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(gx+mx,zy); ctx.lineTo(gx+mx+pw,zy); ctx.stroke();
-    ctx.restore();
-
     var ox=gx+mx, oy=gy+my;
 
-    /* raw GPS deviation (orange) */
-    plotLine(gpsDevH,'rgba(240,144,64,0.9)',2.2,ox,oy,pw,ph,yLo,yHi);
+    /* true altitude (dashed white reference) */
+    plotLine(trueH,'rgba(255,255,255,0.25)',1.2,ox,oy,pw,ph,yLo,yHi);
 
-    /* high-pass filtered deviation (green) */
-    plotLine(hpDevH,'rgba(62,207,142,0.95)',2.5,ox,oy,pw,ph,yLo,yHi);
+    /* raw GPS (orange) */
+    plotLine(gpsH,'rgba(240,144,64,0.9)',2.2,ox,oy,pw,ph,yLo,yHi);
+
+    /* high-pass filtered (green) */
+    plotLine(hpH,'rgba(62,207,142,0.95)',2.5,ox,oy,pw,ph,yLo,yHi);
 
     /* current value dots */
-    if(gpsDevH.length>0){
-      var gvy=oy+ph-((gpsDevH[gpsDevH.length-1]-yLo)/(yHi-yLo))*ph;
-      ctx.beginPath(); ctx.arc(ox+(gpsDevH.length-1)/(MAX_HIST-1)*pw,Math.max(oy,Math.min(oy+ph,gvy)),4,0,Math.PI*2);
+    if(gpsH.length>0){
+      var gvy=oy+ph-((gpsH[gpsH.length-1]-yLo)/(yHi-yLo))*ph;
+      ctx.beginPath(); ctx.arc(ox+(gpsH.length-1)/(MAX_HIST-1)*pw,Math.max(oy,Math.min(oy+ph,gvy)),4,0,Math.PI*2);
       ctx.fillStyle='rgba(240,144,64,0.9)'; ctx.fill();
     }
-    if(hpDevH.length>0){
-      var hvy=oy+ph-((hpDevH[hpDevH.length-1]-yLo)/(yHi-yLo))*ph;
-      ctx.beginPath(); ctx.arc(ox+(hpDevH.length-1)/(MAX_HIST-1)*pw,Math.max(oy,Math.min(oy+ph,hvy)),4,0,Math.PI*2);
+    if(hpH.length>0){
+      var hvy=oy+ph-((hpH[hpH.length-1]-yLo)/(yHi-yLo))*ph;
+      ctx.beginPath(); ctx.arc(ox+(hpH.length-1)/(MAX_HIST-1)*pw,Math.max(oy,Math.min(oy+ph,hvy)),4,0,Math.PI*2);
       ctx.fillStyle='rgba(62,207,142,0.95)'; ctx.fill();
     }
 
     /* legend */
     var ly=gy+12;
     var litems=[
-      {col:'rgba(255,255,255,0.35)', lbl:'True (no drift)', dash:true},
-      {col:'rgba(240,144,64,0.9)',   lbl:'GPS (drifting)',  dash:false},
-      {col:'rgba(62,207,142,0.95)',  lbl:'High-pass',       dash:false},
+      {col:'rgba(255,255,255,0.35)', lbl:'True altitude', dash:true},
+      {col:'rgba(240,144,64,0.9)',   lbl:'GPS',           dash:false},
+      {col:'rgba(62,207,142,0.95)',  lbl:'High-pass',     dash:false},
     ];
     var lx=gx+mx;
     for(var k=0;k<litems.length;k++){
@@ -1536,13 +1571,22 @@ canvas.grab:active { cursor: grabbing; }
 </script>
 
 <div class="dp">
-<p>This is called a high pass filter because high frequencies pass which keeps the short term dynamics of the signal.</p>
-<p>Now, for the radar altimeter we would like to keep the long term dynamics.</p>
+<p>This is called a <strong>high-pass filter</strong> because high frequencies pass through, which keeps the short-term dynamics of the signal.</p>
+<p>You should notice that a low α keeps the reported airplane altitude constant whereas a high alpha lets the rate of change in measurements affect the altitude.</p>
+<p>When α is 1, the filter keeps everything, so the output simply tracks the raw GPS signal.</p>
+<p>Now, for the laser altimeter, we would like to keep the <strong>long-term dynamics</strong>.</p>
 <p>The intuitive way of doing that is to have a weighted average between the new reading and the previous output.</p>
-<p>The true long term signal accumulates through the previous output while we nudge the new readings towards it.</p>
+<p>The true long-term signal accumulates through the previous output while we nudge the new readings towards it.</p>
 <div class="eq-block">
   <span class="eq-line">Low-pass:&nbsp;&nbsp; <span class="eq-var">y</span> = <span class="eq-res">α</span> × <span class="eq-var">y_prev</span> + (1 − <span class="eq-res">α</span>) × <span class="eq-var">x</span></span>
 </div>
+<p><strong>Where:</strong></p>
+<ul>
+<li><span class="eq-var">y</span> — filtered altitude (output)</li>
+<li><span class="eq-var">y_prev</span> — filtered altitude at the previous time step</li>
+<li><span class="eq-var">x</span> — current laser-altimeter reading</li>
+<li><span class="eq-res">α</span> — smoothing factor between 0 and 1</li>
+</ul>
 <p>An alpha (α) parameter close to 1 will smooth the signal because each new output y will be very close to the previous one.</p>
 <p>An alpha close to 0 will let the new measurement influence the output, effectively tracking the input more closely.</p>
 </div>
@@ -1754,11 +1798,19 @@ canvas.grab:active { cursor: grabbing; }
 </script>
 
 <div class="dp">
-<p>This is a low pass filter because low frequencies pass which keeps the long term dynamics of the signal.</p>
-<p>Now, if we combine these two filters the output signal will have both short term and long term dynamics of an altitude input signal which make it complementary.</p>
+<p>This is a <strong>low-pass filter</strong> because low frequencies pass through, which keeps the long-term dynamics of the signal.</p>
+<p>Now, if we combine these two filters, the output signal will have both the short-term and long-term dynamics of the altitude input, which makes it <strong>complementary</strong>.</p>
 <div class="eq-block">
-  <span class="eq-line"><span class="eq-var">y</span> = <span class="eq-res">α</span> × (<span class="eq-var">y_prev</span> + (<span class="eq-var">x_gps</span> − <span class="eq-var">x_prev_gps</span>)) + (1 − <span class="eq-res">α</span>) × <span class="eq-var">x_radar</span></span>
+  <span class="eq-line"><span class="eq-var">y</span> = <span class="eq-res">α</span> × (<span class="eq-var">y_prev</span> + (<span class="eq-var">x_gps</span> − <span class="eq-var">x_prev_gps</span>)) + (1 − <span class="eq-res">α</span>) × <span class="eq-var">x_laser</span></span>
 </div>
+<p><strong>Where:</strong></p>
+<ul>
+<li><span class="eq-var">y</span> — fused altitude estimate (output)</li>
+<li><span class="eq-var">y_prev</span> — fused altitude at the previous time step</li>
+<li><span class="eq-var">x_gps</span>, <span class="eq-var">x_prev_gps</span> — current and previous GPS reading</li>
+<li><span class="eq-var">x_laser</span> — current laser-altimeter reading</li>
+<li><span class="eq-res">α</span> — smoothing factor between 0 and 1</li>
+</ul>
 </div>
 
 <!-- ══════════════════ COMPLEMENTARY FILTER ANIMATION ══════════════════ -->
@@ -1784,8 +1836,9 @@ canvas.grab:active { cursor: grabbing; }
   }
   resize(); window.addEventListener('resize',resize);
 
-  var LOOP_T=10, ALT_M=150, TREE_H_M=42, TREE_SIG=0.055;
-  var GPS_SIG=2, LAS_SIG=12, MAX_HIST=90, READ_DT=0.10;
+  var LOOP_T=10, ALT_BASE=120, ALT_CLIMB=60, TREE_H_M=42, TREE_SIG=0.055;
+  var GPS_SIG=2, LAS_SIG=12, MAX_HIST=250;
+  var GPS_DT=0.18, LAS_DT=0.06; /* altimeter samples ~3x faster than GPS */
   var ALPHA_CF=0.97;
   var TREES=[{nx:0.40,rh:0.65},{nx:0.46,rh:0.82},{nx:0.52,rh:0.95},{nx:0.57,rh:1.00},{nx:0.62,rh:0.88},{nx:0.67,rh:0.72},{nx:0.73,rh:0.55}];
 
@@ -1794,13 +1847,16 @@ canvas.grab:active { cursor: grabbing; }
   alphaElCF.addEventListener('input',function(){
     ALPHA_CF=this.value/100;
     alphaValElCF.textContent=ALPHA_CF.toFixed(2);
-    gpsHcf.length=0; lasHcf.length=0; cfH.length=0;
-    cfPrev=null; gpsPrev=null;
+    gpsHcf.length=0; lasHcf.length=0; cfH.length=0; hpOnlyH.length=0; lpOnlyH.length=0;
+    cfPrev=null; gpsPrev=null; hpPrev=null; lpPrev=null;
+    lastGpsVal=null; lastLasVal=null;
+    lastGpsRead=-999; lastLasRead=-999;
   });
 
-  var t=0, lastRead=-999;
-  var gpsHcf=[], lasHcf=[], cfH=[];
-  var cfPrev=null, gpsPrev=null;
+  var t=0, lastGpsRead=-999, lastLasRead=-999;
+  var gpsHcf=[], lasHcf=[], cfH=[], hpOnlyH=[], lpOnlyH=[];
+  var cfPrev=null, gpsPrev=null, hpPrev=null, lpPrev=null;
+  var lastGpsVal=null, lastLasVal=null; /* latest raw values for interleaving */
   var pulses=[], lastPulse=0;
 
   function gauss(s){
@@ -1944,22 +2000,53 @@ canvas.grab:active { cursor: grabbing; }
     var rawT=t%LOOP_T;
     var worldX=rawT/LOOP_T;
     var apx=(worldX*1.3-0.15)*W;
+    /* aircraft climbs as it traverses */
+    var trueAltCF=ALT_BASE+ALT_CLIMB*worldX;
     var groundY=H*0.60;
-    var apy=groundY-(ALT_M/(ALT_M+30))*(groundY-H*0.08);
+    var skyTop=H*0.06;
+    /* map altitude range [ALT_BASE, ALT_BASE+ALT_CLIMB] to visual range */
+    var altFrac=(trueAltCF-ALT_BASE+20)/(ALT_CLIMB+40);
+    var apy=groundY-(0.25+0.55*altFrac)*(groundY-skyTop);
     var satX=W*0.06, satY=H*0.10;
 
-    if(t-lastRead>=READ_DT){
-      lastRead=t;
-      if(rawT<READ_DT*2){ gpsHcf.length=0; lasHcf.length=0; cfH.length=0; cfPrev=null; gpsPrev=null; }
-      var gps=ALT_M+gauss(GPS_SIG);
-      var th=treeH(apx/W);
-      var las=ALT_M-th+gauss(LAS_SIG);
-      gpsHcf.push(gps);
-      lasHcf.push(las);
-      var cf=(cfPrev===null)?las:ALPHA_CF*(cfPrev+(gps-gpsPrev))+(1-ALPHA_CF)*las;
-      cfH.push(cf);
-      cfPrev=cf; gpsPrev=gps;
-      if(gpsHcf.length>MAX_HIST){ gpsHcf.shift(); lasHcf.shift(); cfH.shift(); }
+    if(t-lastGpsRead>=GPS_DT || t-lastLasRead>=LAS_DT){
+      var resetCycle=rawT<Math.min(GPS_DT,LAS_DT)*2;
+      if(resetCycle){ gpsHcf.length=0; lasHcf.length=0; cfH.length=0; hpOnlyH.length=0; lpOnlyH.length=0; cfPrev=null; gpsPrev=null; hpPrev=null; lpPrev=null; lastGpsVal=null; lastLasVal=null; lastGpsRead=-999; lastLasRead=-999; }
+
+      /* GPS sample (slower) */
+      if(t-lastGpsRead>=GPS_DT){
+        lastGpsRead=t;
+        lastGpsVal=trueAltCF+gauss(GPS_SIG);
+      }
+      /* Altimeter sample (faster) */
+      if(t-lastLasRead>=LAS_DT){
+        lastLasRead=t;
+        var th=treeH(apx/W);
+        lastLasVal=trueAltCF-th+gauss(LAS_SIG);
+      }
+
+      /* only push a combined reading when we have both */
+      if(lastGpsVal!==null && lastLasVal!==null){
+        var gps=lastGpsVal, las=lastLasVal;
+        gpsHcf.push(gps);
+        lasHcf.push(las);
+        /* complementary filter */
+        var cf=(cfPrev===null)?las:ALPHA_CF*(cfPrev+(gps-(gpsPrev||gps)))+(1-ALPHA_CF)*las;
+        cfH.push(cf);
+        /* high-pass only on GPS: tracks changes, rejects jumps, but decays without altimeter anchor */
+        var hp;
+        if(gpsPrev===null){
+          hp=gps;
+        } else {
+          hp=hpPrev+ALPHA_CF*(gps-gpsPrev);
+        }
+        hpOnlyH.push(hp);
+        /* low-pass only on laser altimeter */
+        var lp=(lpPrev===null)?las:ALPHA_CF*lpPrev+(1-ALPHA_CF)*las;
+        lpOnlyH.push(lp);
+        cfPrev=cf; gpsPrev=gps; hpPrev=hp; lpPrev=lp;
+        if(gpsHcf.length>MAX_HIST){ gpsHcf.shift(); lasHcf.shift(); cfH.shift(); hpOnlyH.shift(); lpOnlyH.shift(); }
+      }
     }
 
     if(t-lastPulse>0.6&&apx>0&&apx<W){ lastPulse=t; pulses.push({prog:0}); }
@@ -2004,7 +2091,7 @@ canvas.grab:active { cursor: grabbing; }
     /* ── bottom graph panel (ground strip) ── */
     var gx=W*0.01, gy=groundY+2, gw=W*0.98, gh=H-groundY-4;
     var mx=36,my=20,mr=6,mb=4, pw=gw-mx-mr, ph=gh-my-mb;
-    var yLo=ALT_M-TREE_H_M-20, yHi=ALT_M+20;
+    var yLo=ALT_BASE-TREE_H_M-25, yHi=ALT_BASE+ALT_CLIMB+25;
 
     ctx.beginPath();
     ctx.fillStyle='rgba(8,10,15,0.92)';
@@ -2025,7 +2112,24 @@ canvas.grab:active { cursor: grabbing; }
 
     var ox=gx+mx, oy=gy+my;
     plotLineCF(lasHcf,'rgba(232,69,69,0.4)',1.2,ox,oy,pw,ph,yLo,yHi);
+    /* dots on altimeter points to show fast acquisition */
+    ctx.fillStyle='rgba(232,69,69,0.55)';
+    for(var i=0;i<lasHcf.length;i++){
+      var dx=ox+(i/(MAX_HIST-1))*pw;
+      var dy=oy+ph-((lasHcf[i]-yLo)/(yHi-yLo))*ph;
+      dy=Math.max(oy,Math.min(oy+ph,dy));
+      ctx.beginPath(); ctx.arc(dx,dy,2.2,0,Math.PI*2); ctx.fill();
+    }
     plotLineCF(gpsHcf,'rgba(240,144,64,0.9)',2.0,ox,oy,pw,ph,yLo,yHi);
+    /* HP-only on GPS (dashed yellow) */
+    ctx.save(); ctx.setLineDash([6,4]);
+    plotLineCF(hpOnlyH,'rgba(240,200,60,0.7)',1.8,ox,oy,pw,ph,yLo,yHi);
+    ctx.restore();
+    /* LP-only on laser altimeter (dashed pink) */
+    ctx.save(); ctx.setLineDash([6,4]);
+    plotLineCF(lpOnlyH,'rgba(200,120,180,0.7)',1.8,ox,oy,pw,ph,yLo,yHi);
+    ctx.restore();
+    /* complementary (solid green, on top) */
     plotLineCF(cfH,'rgba(62,207,142,0.95)',2.5,ox,oy,pw,ph,yLo,yHi);
 
     if(cfH.length>0){
@@ -2037,16 +2141,20 @@ canvas.grab:active { cursor: grabbing; }
 
     /* horizontal legend */
     var litemsCF=[
-      {col:'rgba(240,144,64,0.9)',   lbl:'GPS'},
-      {col:'rgba(232,69,69,0.65)',   lbl:'Radar altimeter'},
-      {col:'rgba(62,207,142,0.95)',  lbl:'Complementary'},
+      {col:'rgba(240,144,64,0.9)',   lbl:'GPS',              dash:false},
+      {col:'rgba(232,69,69,0.65)',   lbl:'Laser altimeter',  dash:false},
+      {col:'rgba(240,200,60,0.8)',   lbl:'HP on GPS only',   dash:true},
+      {col:'rgba(200,120,180,0.8)',  lbl:'LP on laser only', dash:true},
+      {col:'rgba(62,207,142,0.95)',  lbl:'Complementary',    dash:false},
     ];
     var lx=gx+mx, ly=gy+10;
     var lslot=pw/litemsCF.length;
     for(var k=0;k<litemsCF.length;k++){
       var ilx=gx+mx+k*lslot;
       ctx.strokeStyle=litemsCF[k].col; ctx.lineWidth=2;
+      if(litemsCF[k].dash){ ctx.save(); ctx.setLineDash([4,3]); }
       ctx.beginPath(); ctx.moveTo(ilx,ly); ctx.lineTo(ilx+14,ly); ctx.stroke();
+      if(litemsCF[k].dash) ctx.restore();
       ctx.font='bold 11px "Space Mono",monospace';
       ctx.fillStyle=litemsCF[k].col; ctx.textAlign='left'; ctx.textBaseline='middle';
       ctx.fillText(litemsCF[k].lbl,ilx+18,ly);
@@ -2058,3 +2166,10 @@ canvas.grab:active { cursor: grabbing; }
   drawCF();
 })();
 </script>
+
+<div class="dp">
+<p>The laser altimeter measurements help discover the trees. The ground clearance drops.</p>
+<p>GPS measurements are a reliable source of altitude changes. This is especially noticeable before approaching the forest, where the complementary filter shows a slow increase in ground clearance induced by the slow increase in altitude. The low-pass-filtered altimeter data is still too much affected by noise to capture that movement accurately.</p>
+<p>With the complementary filter we get the best of both worlds from each sensor signal.</p>
+<p>They are fused into a more reliable and precise ground-clearance estimation that a single signal would not be able to provide.</p>
+</div>
